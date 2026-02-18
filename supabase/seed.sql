@@ -1,0 +1,2 @@
+-- Seed data will be added as features are implemented
+-- See individual migration files for table definitions
