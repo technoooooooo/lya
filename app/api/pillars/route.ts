@@ -20,6 +20,7 @@ export async function GET() {
       .order("display_order", { ascending: true });
 
     if (error) {
+      console.error("Pillars DB error:", error);
       return NextResponse.json(
         { success: false, error: { message: "Erreur chargement des piliers", code: "DB_ERROR" } },
         { status: 500 }

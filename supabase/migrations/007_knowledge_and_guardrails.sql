@@ -22,12 +22,7 @@ create policy "Authenticated users can read active knowledge documents"
 
 create policy "Admin can manage knowledge documents"
   on public.knowledge_documents for all
-  using (
-    exists (
-      select 1 from public.profiles
-      where user_id = auth.uid() and role = 'admin'
-    )
-  );
+  using (public.is_admin());
 
 -- Guardrails table
 create table public.guardrails (
@@ -52,12 +47,7 @@ create policy "Authenticated users can read active guardrails"
 
 create policy "Admin can manage guardrails"
   on public.guardrails for all
-  using (
-    exists (
-      select 1 from public.profiles
-      where user_id = auth.uid() and role = 'admin'
-    )
-  );
+  using (public.is_admin());
 
 -- AI Config table (prompt principal, etc.)
 create table public.ai_config (
@@ -79,12 +69,7 @@ create policy "Authenticated users can read AI config"
 
 create policy "Admin can manage AI config"
   on public.ai_config for all
-  using (
-    exists (
-      select 1 from public.profiles
-      where user_id = auth.uid() and role = 'admin'
-    )
-  );
+  using (public.is_admin());
 
 -- Seed default AI config
 insert into public.ai_config (key, value) values

@@ -37,13 +37,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const fetchProfile = async (userId: string) => {
-    const supabase = getSupabase();
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
-    setProfile(data as Profile | null);
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
+      if (error) {
+        console.error("fetchProfile error:", error);
+      }
+      setProfile(data as Profile | null);
+    } catch (e) {
+      console.error("fetchProfile exception:", e);
+      setProfile(null);
+    }
   };
 
   const refreshProfile = async () => {
@@ -53,18 +61,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    console.log("[AuthContext] useEffect running");
     const supabase = getSupabase();
+    console.log("[AuthContext] supabase client created");
 
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      if (user) {
-        await fetchProfile(user.id);
+    const getSession = async () => {
+      console.log("[AuthContext] getSession called, calling supabase.auth.getSession()...");
+      try {
+        console.log("[AuthContext] supabase URL:", (supabase as any).supabaseUrl);
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        console.log("[AuthContext] getSession resolved", { session: !!session, error: sessionError });
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
+        if (currentUser) {
+          await fetchProfile(currentUser.id);
+        }
+      } catch (e) {
+        console.error("getSession error:", e);
+        setUser(null);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
-    getUser();
+    getSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {

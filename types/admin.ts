@@ -8,6 +8,21 @@ export interface KnowledgeDocument {
   updated_at: string;
 }
 
+export interface KnowledgeFile {
+  id: string;
+  document_id: string;
+  file_name: string;
+  storage_path: string;
+  mime_type: "image/png" | "image/jpeg" | "application/pdf";
+  file_size: number;
+  extracted_text: string | null;
+  created_at: string;
+}
+
+export interface KnowledgeDocumentWithFiles extends KnowledgeDocument {
+  knowledge_files: KnowledgeFile[];
+}
+
 export interface Guardrail {
   id: string;
   type: 'forbidden' | 'exception';

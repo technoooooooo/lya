@@ -7,121 +7,157 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Lya** is an AI-powered golf coaching assistant — the digital extension of Mathieu's coaching pedagogy. It's a client project (not our own product). The core value is prompt engineering fidelity: the AI must respond exactly as Mathieu would, using only his knowledge base. This is NOT a generic golf chatbot.
 
 - **Type:** Web App (PWA), EdTech/Sports Coaching
-- **Status:** Planning complete, implementation not yet started
-- **Language:** French (all documents, UI, and communication)
+- **Language:** French (all UI text, validation messages, and user-facing communication)
 
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router) + TypeScript strict
-- **Styling:** Tailwind CSS + shadcn/ui
-- **Backend/Auth/DB:** Supabase (PostgreSQL, Auth cookie-based SSR via `supabase-ssr`, Storage, RLS)
-- **AI:** OpenAI or Gemini (swappable via `AIProvider` interface, selected by `AI_PROVIDER` env var)
-- **Voice:** Whisper API (swappable via `TranscriptionProvider` interface)
-- **Payments:** Stripe (webhook-based, external sales page on systeme.io)
-- **Hosting:** Vercel (serverless, auto-deploy from Git)
-- **PWA:** Service worker + manifest.json (no offline mode at MVP)
+- **Styling:** Tailwind CSS + shadcn/ui (style: "new-york", icons: lucide)
+- **Backend/Auth/DB:** Supabase (PostgreSQL, Auth cookie-based SSR via `@supabase/ssr`, RLS on all tables)
+- **AI:** OpenAI (`gpt-4o`) or Gemini (`gemini-2.0-flash`), swappable via `AI_PROVIDER` env var
+- **Voice:** Whisper API (`whisper-1`, language: `fr`)
+- **Payments:** Stripe (webhook-based with HMAC-SHA256 signature verification)
+- **Hosting:** Vercel
+- **No ORM** (no Prisma, no Drizzle) — Supabase Client JS only
+- **No n8n** — explicitly excluded
 
 ## Build & Dev Commands
 
 ```bash
-# Initialize project (not yet done)
-npx create-next-app -e with-supabase lya
-
-# Standard Next.js commands (once initialized)
 npm run dev          # Dev server with Turbopack
 npm run build        # Production build
 npm run lint         # ESLint
 
 # Supabase
-npx supabase db diff    # Generate migration
-npx supabase db push    # Apply migrations
+npx supabase db diff                                           # Generate migration
+npx supabase db push                                           # Apply migrations
 npx supabase gen types typescript --local > types/database.ts  # Regenerate DB types
 ```
 
+No test framework is configured yet.
+
 ## Architecture
 
-### Key Architectural Decisions
+### Route Groups & Middleware
 
-- **No ORM** — Use Supabase Client JS natively (no Prisma, no Drizzle)
-- **RLS on all tables** — Every user sees only their own data; admin has dedicated policies
-- **AI streaming via SSE** — `ReadableStream` in Route Handlers, consumed via `fetch` + `getReader()`
-- **Provider abstraction** — `AIProvider` interface (OpenAI/Gemini) and `TranscriptionProvider` interface (Whisper) are swappable without code changes
-- **Zod validation** — Server-side input validation on all API routes before any processing
-- **Middleware RBAC** — Next.js middleware protects `/admin/*` (admin role check) and verifies active subscription on protected routes
-- **React Context** for global auth/user state (no Redux/Zustand at MVP)
-- **No n8n** — explicitly excluded from the stack
+Three route groups with different access levels, enforced in `middleware.ts`:
 
-### Project Structure
+- **`app/auth/`** — Public (login, signup, callback, forgot/update password)
+- **`app/(app)/`** — Protected: requires authenticated user. Layout provides `AuthProvider`, `ChatSidebar`, header
+- **`app/admin/`** — Protected: requires `profiles.role === 'admin'`. Layout provides `AdminSidebar`
+- **`app/api/webhooks/*`** — Bypasses auth (signature-verified separately)
 
+Middleware flow: `updateSession()` refreshes cookie → check auth → check admin role for `/admin/*`.
+
+### AI Pipeline (critical path)
+
+The chat flow in `app/api/chat/route.ts`:
+
+1. Auth check → subscription check (`is_active` + `subscription_status === "active"`)
+2. Zod validation (`lib/validations/chat.ts`)
+3. Input sanitization via `lib/ai/guardrails.ts` (regex-based injection detection, max 4000 chars)
+4. Get or create conversation (auto-titles from first 50 chars of message)
+5. Save user message → fetch last 50 messages as history
+6. Build system prompt via `lib/ai/promptBuilder.ts` (fetches `ai_config`, `knowledge_documents`, `guardrails` from DB, appends pillar-specific `pre_prompt`)
+7. `getAIProvider().stream(messages)` — singleton factory in `lib/ai/provider.ts`
+8. **`stream.tee()`** — one fork returned to client, one fork saves assistant response to DB in background
+9. Returns `Response` with `X-Conversation-Id` header (used by client for new conversations)
+
+### Provider Abstraction
+
+```typescript
+// lib/ai/types.ts
+interface AIProvider {
+  chat(messages: AIMessage[], config?: AIStreamConfig): Promise<string>;
+  stream(messages: AIMessage[], config?: AIStreamConfig): Promise<ReadableStream<Uint8Array>>;
+}
 ```
-lya/
-├── middleware.ts                    # Auth + RBAC + subscription checks
-├── supabase/migrations/            # Versioned SQL migrations (001-008)
-├── app/
-│   ├── (auth)/                     # Public pages: login, signup, callback
-│   ├── (app)/                      # Protected student pages: chat, account, pillars
-│   ├── admin/                      # Protected admin pages: ai config, users, metrics
-│   └── api/
-│       ├── chat/route.ts           # POST — AI streaming (SSE)
-│       ├── conversations/route.ts  # GET list, POST create
-│       ├── transcribe/route.ts     # POST — audio → text
-│       ├── admin/                  # Admin CRUD routes
-│       └── webhooks/stripe/route.ts # Stripe webhook (signature-verified)
-├── components/
-│   ├── ui/                         # shadcn/ui base components
-│   ├── chat/                       # ChatInterface, ChatMessage, ChatInput, ChatSidebar
-│   ├── pillars/                    # PillarGrid, PillarCard
-│   ├── auth/                       # LoginForm, SignupForm, PromoCodeInput
-│   ├── admin/                      # PromptEditor, KnowledgeManager, GuardrailEditor, UserTable
-│   └── shared/                     # VoiceRecorder, PWAInstallPrompt, ErrorBoundary
-├── lib/
-│   ├── supabase/                   # client.ts, server.ts, middleware.ts
-│   ├── ai/                         # types.ts, openai.ts, gemini.ts, provider.ts, promptBuilder.ts, guardrails.ts
-│   ├── transcription/              # types.ts, whisper.ts, provider.ts
-│   ├── stripe/                     # client.ts, webhookHandler.ts
-│   └── validations/                # Zod schemas: chat.ts, auth.ts, admin.ts
-├── types/                          # database.ts (generated), chat.ts, admin.ts, api.ts
-└── contexts/                       # AuthContext.tsx, ChatContext.tsx
-```
+
+- `lib/ai/openai.ts` — Direct fetch to OpenAI API (model: `OPENAI_MODEL` env var or `gpt-4o`)
+- `lib/ai/gemini.ts` — Direct fetch to Gemini API, converts message format (model: `GEMINI_MODEL` env var or `gemini-2.0-flash`)
+- `lib/ai/provider.ts` — Factory with singleton caching, selected by `AI_PROVIDER` env var
+
+### Supabase Client Patterns
+
+Three client variants, use the right one depending on context:
+
+- **`lib/supabase/client.ts`** — `createBrowserClient()` for client components
+- **`lib/supabase/server.ts`** — `createServerClient()` for server components and route handlers (cookie-based)
+- **`lib/supabase/middleware.ts`** — `updateSession()` for middleware session refresh
+
+The Stripe webhook uses a service-role admin client to bypass RLS.
+
+### Auth State
+
+`contexts/AuthContext.tsx` provides `useAuth()` hook with:
+- `user`, `profile`, `isLoading`
+- `isAdmin` (computed: `profile.role === 'admin'`)
+- `isSubscribed` (computed: `profile.subscription_status === 'active'`)
+- `refreshProfile()` — re-fetches profile from DB
+- Subscribes to `onAuthStateChange()` for real-time session updates
+
+### Streaming on the Client
+
+`components/chat/ChatInterface.tsx` consumes the AI stream:
+- POST to `/api/chat`, read `X-Conversation-Id` from response header
+- `response.body.getReader()` + `TextDecoder` to incrementally render `streamingContent`
+- Optimistic UI: user message appears immediately before response starts
+
+### Database Schema
+
+8 migrations in `supabase/migrations/` (001–008):
+- `profiles` — extends `auth.users` with `role`, `subscription_status`, `subscription_type`, `is_active`. Auto-created via trigger on user signup
+- `promo_codes` — code validation and redemption
+- `conversations` — `user_id`, `title`, `pillar_id`
+- `messages` — `conversation_id`, `role` (user/assistant), `content`
+- `pillars` — 5 coaching pillars with `name`, `description`, `icon`, `pre_prompt`, `display_order`
+- `knowledge_documents` — admin-managed knowledge base content injected into system prompt
+- `guardrails` — rules (forbidden/exception) injected into system prompt
+- `ai_config` — key-value store for main system prompt and other AI config
+
+All tables have RLS. Users see only their own data. Admins have elevated policies.
 
 ### Naming Conventions
 
 | Context | Convention | Examples |
 |---------|-----------|----------|
-| DB tables | `snake_case`, plural | `knowledge_documents`, `promo_codes` |
-| DB columns | `snake_case` | `user_id`, `created_at`, `is_active` |
-| API endpoints | `kebab-case`, plural | `/api/conversations`, `/api/admin/knowledge-documents` |
-| JSON body/params | `camelCase` | `conversationId`, `messageContent` |
-| Component files | `PascalCase.tsx` | `ChatMessage.tsx`, `PillarCard.tsx` |
-| Utility/service files | `camelCase.ts` | `aiProvider.ts`, `inputSanitizer.ts` |
-| Folders | `kebab-case` | `chat-interface`, `knowledge-base` |
-| Interfaces/Types | `PascalCase` | `AIProvider`, `ChatMessage`, `UserProfile` |
-| Constants | `UPPER_SNAKE_CASE` | `MAX_TOKENS`, `DEFAULT_PILLAR_PROMPT` |
+| DB tables/columns | `snake_case` | `knowledge_documents`, `user_id` |
+| API endpoints | `kebab-case` | `/api/admin/knowledge-documents` |
+| JSON body/params | `camelCase` | `conversationId`, `pillarId` |
+| Components | `PascalCase.tsx` | `ChatMessage.tsx`, `PillarCard.tsx` |
+| Lib/utils | `camelCase.ts` | `promptBuilder.ts`, `guardrails.ts` |
+| Types/Interfaces | `PascalCase` | `AIProvider`, `ChatMessage` |
 
 ### API Response Format
 
 ```typescript
-// Success
-{ success: true, data: T }
-// Error
-{ success: false, error: { message: string, code: string } }
+{ success: true, data: T }                              // Success
+{ success: false, error: { message: string, code: string } }  // Error
 ```
 
-### Implementation Sequence
+Exception: the chat endpoint returns a raw `ReadableStream` (not JSON).
 
-1. Init (`create-next-app -e with-supabase`) → 2. DB schema + RLS → 3. Auth + RBAC → 4. AI pipeline (abstraction + streaming + guardrails) → 5. Chat UI (ChatGPT-like) → 6. 5 Pillars + dynamic pre-prompts → 7. Voice transcription → 8. Admin panel → 9. Stripe integration → 10. PWA
+### Stripe Webhook Flow
 
-## UX Direction
+`app/api/webhooks/stripe/route.ts` handles:
+- `checkout.session.completed` → activates subscription (resolves user via metadata/client_reference_id/email)
+- `customer.subscription.updated` → maps Stripe status to `active`/`inactive`/`past_due`
+- `customer.subscription.deleted` → sets `inactive`
 
-ChatGPT-like interface: sidebar with conversation history on the left, central chat area, input at the bottom. The differentiator is the 5 pillars displayed as entry points (cards on home screen). Do not reinvent the chat UX — capitalize on existing conventions.
+Signature verification in `lib/stripe.ts` using HMAC-SHA256 with timing-safe comparison.
+
+### Environment Variables
+
+Required in `.env.local` (see `.env.example`):
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` (server-only, for webhook admin operations)
+- `AI_PROVIDER` (`openai` or `gemini`), `OPENAI_API_KEY`, `GEMINI_API_KEY`
+- `OPENAI_MODEL`, `GEMINI_MODEL` (optional overrides)
+- `STRIPE_WEBHOOK_SECRET`
 
 ## Planning Documents
 
-All planning is complete in `_bmad-output/planning-artifacts/`:
-- `prd.md` — 38 functional requirements, 16 non-functional requirements
-- `architecture.md` — Full architecture decisions, directory structure, patterns
+Detailed requirements in `_bmad-output/planning-artifacts/`:
+- `prd.md` — 38 functional + 16 non-functional requirements
+- `architecture.md` — Full architecture decisions and patterns
 - `epics.md` — 8 epics, 19 stories with Given/When/Then acceptance criteria
-
-## BMAD Framework
-
-The `_bmad/` directory contains the BMAD planning framework (v6.0.1). Slash commands are available for workflows (`/bmad-bmm-*`). Implementation artifacts go in `_bmad-output/implementation-artifacts/`.

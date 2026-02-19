@@ -25,7 +25,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from("knowledge_documents")
-      .select("*")
+      .select("*, knowledge_files(*)")
       .order("created_at", { ascending: false });
 
     if (error) {

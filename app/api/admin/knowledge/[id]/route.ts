@@ -83,6 +83,18 @@ export async function DELETE(
       );
     }
 
+    // Clean up files from storage before deleting document
+    const { data: files } = await supabase
+      .from("knowledge_files")
+      .select("storage_path")
+      .eq("document_id", id);
+
+    if (files && files.length > 0) {
+      await supabase.storage
+        .from("knowledge-files")
+        .remove(files.map((f) => f.storage_path));
+    }
+
     const { error } = await supabase
       .from("knowledge_documents")
       .delete()

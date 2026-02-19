@@ -31,9 +31,4 @@ create policy "Anyone can view active pillars"
 -- Admin can manage pillars
 create policy "Admin can manage pillars"
   on public.pillars for all
-  using (
-    exists (
-      select 1 from public.profiles
-      where user_id = auth.uid() and role = 'admin'
-    )
-  );
+  using (public.is_admin());

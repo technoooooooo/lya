@@ -13,10 +13,10 @@ export async function buildSystemPrompt(pillarPrePrompt?: string): Promise<strin
 
   const systemPrompt = config?.value || "Tu es Lya, assistant IA dédié au coaching golf.";
 
-  // Get active knowledge documents
+  // Get active knowledge documents with extracted file text
   const { data: docs } = await supabase
     .from("knowledge_documents")
-    .select("title, content")
+    .select("title, content, knowledge_files(extracted_text)")
     .eq("is_active", true);
 
   // Get active guardrails
@@ -37,6 +37,17 @@ export async function buildSystemPrompt(pillarPrePrompt?: string): Promise<strin
     fullPrompt += "\n\n## Base de connaissances\nUtilise exclusivement les informations suivantes pour répondre :\n";
     for (const doc of docs) {
       fullPrompt += `\n### ${doc.title}\n${doc.content}\n`;
+      // Append extracted text from PDF files
+      const files = (doc as Record<string, unknown>).knowledge_files as
+        | { extracted_text: string | null }[]
+        | undefined;
+      if (files) {
+        for (const file of files) {
+          if (file.extracted_text) {
+            fullPrompt += `\n${file.extracted_text}\n`;
+          }
+        }
+      }
     }
   }
 

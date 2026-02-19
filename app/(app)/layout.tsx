@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AuthButton } from "@/components/auth-button";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -18,15 +17,11 @@ export default function AppLayout({
             <Link href="/" className="text-xl font-bold">
               Lya
             </Link>
-            <Suspense>
-              <AuthButton />
-            </Suspense>
+            <AuthButton />
           </div>
         </header>
         <div className="flex flex-1 overflow-hidden">
-          <Suspense>
-            <ChatSidebar />
-          </Suspense>
+          <ChatSidebar />
           <main className="flex-1 overflow-y-auto">{children}</main>
         </div>
         <PWAInstallPrompt />

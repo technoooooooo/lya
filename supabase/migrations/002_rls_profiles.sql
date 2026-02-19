@@ -1,3 +1,12 @@
+-- Helper function to check admin role (SECURITY DEFINER bypasses RLS)
+create or replace function public.is_admin()
+returns boolean as $$
+  select exists (
+    select 1 from public.profiles
+    where user_id = auth.uid() and role = 'admin'
+  );
+$$ language sql security definer stable;
+
 -- Enable RLS
 alter table public.profiles enable row level security;
 
@@ -15,19 +24,9 @@ create policy "Users can update own profile"
 -- Admin can read all profiles
 create policy "Admin can view all profiles"
   on public.profiles for select
-  using (
-    exists (
-      select 1 from public.profiles
-      where user_id = auth.uid() and role = 'admin'
-    )
-  );
+  using (public.is_admin());
 
 -- Admin can update all profiles
 create policy "Admin can update all profiles"
   on public.profiles for update
-  using (
-    exists (
-      select 1 from public.profiles
-      where user_id = auth.uid() and role = 'admin'
-    )
-  );
+  using (public.is_admin());

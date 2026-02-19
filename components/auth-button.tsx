@@ -1,30 +1,28 @@
+"use client";
+
 import Link from "next/link";
 import { Button } from "./ui/button";
-import { createClient } from "@/lib/supabase/server";
-import { LogoutButton } from "./logout-button";
+import { useAuth } from "@/contexts/AuthContext";
 
-export async function AuthButton() {
-  const supabase = await createClient();
+export function AuthButton() {
+  const { user, isLoading } = useAuth();
 
-  // You can also use getUser() which will be slower.
-  const { data } = await supabase.auth.getClaims();
+  const logout = () => {
+    // POST to signout API then redirect — avoids client-side Supabase issues
+    fetch("/auth/signout", { method: "POST" }).finally(() => {
+      window.location.href = "/auth/login";
+    });
+  };
 
-  const user = data?.claims;
-
-  return user ? (
+  return (
     <div className="flex items-center gap-4">
-      <Link href="/account" className="text-sm text-muted-foreground hover:underline">
-        {user.email}
-      </Link>
-      <LogoutButton />
-    </div>
-  ) : (
-    <div className="flex gap-2">
-      <Button asChild size="sm" variant={"outline"}>
-        <Link href="/auth/login">Connexion</Link>
-      </Button>
-      <Button asChild size="sm" variant={"default"}>
-        <Link href="/auth/signup">Inscription</Link>
+      {!isLoading && user && (
+        <Link href="/account" className="text-sm text-muted-foreground hover:underline">
+          {user.email}
+        </Link>
+      )}
+      <Button onClick={logout} variant="outline" size="sm">
+        Déconnexion
       </Button>
     </div>
   );

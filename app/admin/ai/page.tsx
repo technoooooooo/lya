@@ -28,7 +28,8 @@ import {
   MessageSquare,
   AlertCircle,
 } from "lucide-react";
-import type { AIConfig, KnowledgeDocument, Guardrail } from "@/types/admin";
+import type { AIConfig, KnowledgeDocumentWithFiles, Guardrail } from "@/types/admin";
+import FileUploader from "@/components/admin/FileUploader";
 
 // ---------------------------------------------------------------------------
 // Prompt principal (Story 5.1)
@@ -162,11 +163,11 @@ function PromptSection() {
 // ---------------------------------------------------------------------------
 
 function KnowledgeSection() {
-  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [documents, setDocuments] = useState<KnowledgeDocumentWithFiles[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingDoc, setEditingDoc] = useState<KnowledgeDocument | null>(null);
+  const [editingDoc, setEditingDoc] = useState<KnowledgeDocumentWithFiles | null>(null);
   const [formTitle, setFormTitle] = useState("");
   const [formContent, setFormContent] = useState("");
   const [formSaving, setFormSaving] = useState(false);
@@ -202,7 +203,7 @@ function KnowledgeSection() {
     setDialogOpen(true);
   };
 
-  const openEdit = (doc: KnowledgeDocument) => {
+  const openEdit = (doc: KnowledgeDocumentWithFiles) => {
     setEditingDoc(doc);
     setFormTitle(doc.title);
     setFormContent(doc.content);
@@ -222,7 +223,11 @@ function KnowledgeSection() {
         const json = await res.json();
         if (json.success) {
           setDocuments((prev) =>
-            prev.map((d) => (d.id === editingDoc.id ? json.data : d))
+            prev.map((d) =>
+              d.id === editingDoc.id
+                ? { ...json.data, knowledge_files: d.knowledge_files }
+                : d
+            )
           );
           setDialogOpen(false);
         } else {
@@ -236,7 +241,10 @@ function KnowledgeSection() {
         });
         const json = await res.json();
         if (json.success) {
-          setDocuments((prev) => [json.data, ...prev]);
+          setDocuments((prev) => [
+            { ...json.data, knowledge_files: [] },
+            ...prev,
+          ]);
           setDialogOpen(false);
         } else {
           setError(json.error?.message ?? "Erreur inconnue");
@@ -249,7 +257,7 @@ function KnowledgeSection() {
     }
   };
 
-  const handleToggleActive = async (doc: KnowledgeDocument) => {
+  const handleToggleActive = async (doc: KnowledgeDocumentWithFiles) => {
     try {
       const res = await fetch(`/api/admin/knowledge/${doc.id}`, {
         method: "PUT",
@@ -259,7 +267,11 @@ function KnowledgeSection() {
       const json = await res.json();
       if (json.success) {
         setDocuments((prev) =>
-          prev.map((d) => (d.id === doc.id ? json.data : d))
+          prev.map((d) =>
+            d.id === doc.id
+              ? { ...json.data, knowledge_files: d.knowledge_files }
+              : d
+          )
         );
       }
     } catch {
@@ -337,6 +349,12 @@ function KnowledgeSection() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="truncate font-medium">{doc.title}</p>
+                      {doc.knowledge_files.length > 0 && (
+                        <Badge variant="outline">
+                          {doc.knowledge_files.length} fichier
+                          {doc.knowledge_files.length > 1 ? "s" : ""}
+                        </Badge>
+                      )}
                       {!doc.is_active && (
                         <Badge variant="secondary">Inactif</Badge>
                       )}
@@ -413,6 +431,25 @@ function KnowledgeSection() {
                 className="font-mono text-sm"
               />
             </div>
+            {editingDoc && (
+              <div className="space-y-2">
+                <Label>Fichiers attachés</Label>
+                <FileUploader
+                  documentId={editingDoc.id}
+                  files={editingDoc.knowledge_files}
+                  onFilesChange={(updatedFiles) => {
+                    const updated = {
+                      ...editingDoc,
+                      knowledge_files: updatedFiles,
+                    };
+                    setEditingDoc(updated);
+                    setDocuments((prev) =>
+                      prev.map((d) => (d.id === editingDoc.id ? { ...d, knowledge_files: updatedFiles } : d))
+                    );
+                  }}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -447,7 +484,7 @@ function KnowledgeSection() {
           <DialogHeader>
             <DialogTitle>Confirmer la suppression</DialogTitle>
             <DialogDescription>
-              Cette action est irréversible. Le document sera définitivement supprimé.
+              Cette action est irréversible. Le document et tous ses fichiers attachés seront définitivement supprimés.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

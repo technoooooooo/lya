@@ -20,9 +20,4 @@ create policy "Anyone can check promo codes"
 -- Only admin can manage promo codes
 create policy "Admin can manage promo codes"
   on public.promo_codes for all
-  using (
-    exists (
-      select 1 from public.profiles
-      where user_id = auth.uid() and role = 'admin'
-    )
-  );
+  using (public.is_admin());
