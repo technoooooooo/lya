@@ -3,13 +3,6 @@
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
@@ -39,7 +32,6 @@ export function LoginForm({
       });
       if (error) throw error;
 
-      // Check if user is admin to redirect accordingly
       const { data: profile } = await supabase
         .from("profiles")
         .select("role")
@@ -48,70 +40,82 @@ export function LoginForm({
 
       router.push(profile?.role === "admin" ? "/admin" : "/");
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(error instanceof Error ? error.message : "Une erreur est survenue");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl">Connexion</CardTitle>
-          <CardDescription>
-            Entrez votre email pour accéder à Lya
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin}>
-            <div className="flex flex-col gap-6">
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="m@example.com"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <div className="flex items-center">
-                  <Label htmlFor="password">Password</Label>
-                  <Link
-                    href="/auth/forgot-password"
-                    className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
-                  >
-                    Mot de passe oublié ?
-                  </Link>
-                </div>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Connexion..." : "Se connecter"}
-              </Button>
+    <div className={cn("flex flex-col items-center gap-8", className)} {...props}>
+      {/* Logo */}
+      <div className="flex flex-col items-center gap-3">
+        <svg
+          width="48"
+          height="48"
+          viewBox="0 0 28 28"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle cx="14" cy="14" r="13" stroke="hsl(153 51% 30%)" strokeWidth="1.5" />
+          <circle cx="14" cy="14" r="4" fill="hsl(153 51% 30%)" />
+          <path d="M14 10 C14 10, 8 4, 5 7" stroke="hsl(153 51% 30%)" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
+        </svg>
+        <h1 className="text-2xl font-semibold tracking-tight">Lya</h1>
+        <p className="text-sm text-muted-foreground">Votre assistant golf personnel</p>
+      </div>
+
+      {/* Form */}
+      <div className="w-full rounded-2xl border bg-card p-6 shadow-sm">
+        <form onSubmit={handleLogin}>
+          <div className="flex flex-col gap-5">
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="vous@exemple.com"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
-            <div className="mt-4 text-center text-sm">
-              Pas encore de compte ?{" "}
-              <Link
-                href="/auth/signup"
-                className="underline underline-offset-4"
-              >
-                Créer un compte
-              </Link>
+            <div className="grid gap-2">
+              <div className="flex items-center">
+                <Label htmlFor="password">Mot de passe</Label>
+                <Link
+                  href="/auth/forgot-password"
+                  className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Mot de passe oublié ?
+                </Link>
+              </div>
+              <Input
+                id="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
             </div>
-          </form>
-        </CardContent>
-      </Card>
+            {error && <p className="text-sm text-red-500">{error}</p>}
+            <Button
+              type="submit"
+              className="w-full bg-golf text-golf-foreground hover:bg-golf/90"
+              disabled={isLoading}
+            >
+              {isLoading ? "Connexion..." : "Se connecter"}
+            </Button>
+          </div>
+        </form>
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        Pas encore de compte ?{" "}
+        <Link href="/auth/signup" className="text-golf hover:underline font-medium">
+          Créer un compte
+        </Link>
+      </p>
     </div>
   );
 }

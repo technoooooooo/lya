@@ -2,16 +2,29 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
-import { Plus, MessageSquare } from "lucide-react";
+import { Plus, MessageSquare, Sun, Moon, User, Settings, LogOut, PanelLeftClose, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Conversation } from "@/types/chat";
 
 export function ChatSidebar() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOpen, setIsOpen] = useState(true);
   const pathname = usePathname();
+  const router = useRouter();
+  const { theme, setTheme } = useTheme();
+  const { user, profile } = useAuth();
 
   useEffect(() => {
     const fetchConversations = async () => {
@@ -26,16 +39,60 @@ export function ChatSidebar() {
     fetchConversations();
   }, [pathname]);
 
+  // Collapsed state: just a toggle button
+  if (!isOpen) {
+    return (
+      <div className="flex flex-col items-center py-4 px-2 border-r bg-muted/30">
+        <button
+          onClick={() => setIsOpen(true)}
+          className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          aria-label="Ouvrir la sidebar"
+        >
+          <PanelLeft className="h-5 w-5" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <aside className="w-64 border-r bg-muted/30 flex flex-col h-full">
-      <div className="p-3">
+      {/* Header: logo + toggle */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-6">
+        <Link href="/" className="flex items-center gap-2.5">
+          <svg
+            width="28"
+            height="28"
+            viewBox="0 0 28 28"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="shrink-0"
+          >
+            <circle cx="14" cy="14" r="13" stroke="currentColor" strokeWidth="1.5" className="text-foreground/70" />
+            <circle cx="14" cy="14" r="4" fill="currentColor" className="text-foreground/70" />
+            <path d="M14 10 C14 10, 8 4, 5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-foreground/40" />
+          </svg>
+          <span className="text-lg font-semibold tracking-tight text-foreground/90">Lya</span>
+        </Link>
+        <button
+          onClick={() => setIsOpen(false)}
+          className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          aria-label="Fermer la sidebar"
+        >
+          <PanelLeftClose className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* New chat */}
+      <div className="px-3 pb-3">
         <Link href="/">
-          <Button variant="outline" className="w-full justify-start gap-2">
+          <Button className="w-full justify-start gap-2 bg-golf text-golf-foreground hover:bg-golf/90">
             <Plus className="h-4 w-4" />
             Nouveau chat
           </Button>
         </Link>
       </div>
+
+      {/* Conversations */}
       <div className="flex-1 overflow-y-auto px-3 pb-3">
         {isLoading ? (
           <p className="text-xs text-muted-foreground p-2">Chargement...</p>
@@ -60,6 +117,73 @@ export function ChatSidebar() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* User menu */}
+      <div className="p-3 border-t">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-3 w-full rounded-lg px-2 py-2 text-sm hover:bg-muted transition-colors text-left">
+              {profile?.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt=""
+                  className="h-8 w-8 rounded-full object-cover shrink-0"
+                />
+              ) : (
+                <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-medium shrink-0">
+                  {(profile?.first_name || user?.email || "?").charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="truncate font-medium">
+                  {profile?.first_name && profile?.last_name
+                    ? `${profile.first_name} ${profile.last_name}`
+                    : profile?.first_name || user?.email || "Utilisateur"}
+                </div>
+                {profile?.golf_club && (
+                  <div className="truncate text-xs text-muted-foreground">
+                    {profile.golf_club}
+                  </div>
+                )}
+              </div>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" className="w-56">
+            <DropdownMenuItem onClick={() => router.push("/informations")}>
+              <User className="h-4 w-4 mr-2" />
+              Informations
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push("/account")}>
+              <Settings className="h-4 w-4 mr-2" />
+              Compte
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+              {theme === "dark" ? (
+                <>
+                  <Sun className="h-4 w-4 mr-2" />
+                  Mode clair
+                </>
+              ) : (
+                <>
+                  <Moon className="h-4 w-4 mr-2" />
+                  Mode sombre
+                </>
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                fetch("/auth/signout", { method: "POST" }).finally(() => {
+                  window.location.href = "/auth/login";
+                });
+              }}
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Se déconnecter
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </aside>
   );

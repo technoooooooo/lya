@@ -9,6 +9,7 @@ import type { Message } from "@/types/chat";
 interface ChatInterfaceProps {
   conversationId?: string;
   pillarId?: string;
+  pillarName?: string;
   initialMessages?: Message[];
   onConversationCreated?: (id: string) => void;
 }
@@ -16,6 +17,7 @@ interface ChatInterfaceProps {
 export function ChatInterface({
   conversationId,
   pillarId,
+  pillarName,
   initialMessages = [],
   onConversationCreated,
 }: ChatInterfaceProps) {

@@ -29,9 +29,23 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getUser() makes a network call to verify the token with Supabase Auth.
+  // If it fails (network issue), fall back to getSession() which reads cookies locally.
+  let user = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    // Network error — fall back to session from cookies
+    const { data } = await supabase.auth.getSession();
+    user = data.session?.user ?? null;
+  }
+
+  // If getUser returned null but we have a session cookie, use that
+  if (!user) {
+    const { data } = await supabase.auth.getSession();
+    user = data.session?.user ?? null;
+  }
 
   return { user, supabaseResponse, supabase };
 }

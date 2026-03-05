@@ -70,7 +70,7 @@ export default function AdminDashboardPage() {
       title: "Total utilisateurs",
       value: metrics?.totalUsers ?? 0,
       icon: Users,
-      description: "Comptes enregistres",
+      description: "Comptes enregistrés",
     },
     {
       title: "Abonnements actifs",
@@ -88,7 +88,7 @@ export default function AdminDashboardPage() {
       title: "Messages",
       value: metrics?.totalMessages ?? 0,
       icon: MessageSquare,
-      description: "Messages echanges",
+      description: "Messages échangés",
     },
     {
       title: "Nouveaux aujourd'hui",

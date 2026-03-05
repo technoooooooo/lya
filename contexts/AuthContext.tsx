@@ -39,11 +39,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchProfile = async (userId: string) => {
     try {
       const supabase = getSupabase();
+      console.log("[AuthContext] fetchProfile for", userId);
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("user_id", userId)
         .single();
+      console.log("[AuthContext] fetchProfile result", { data, error });
       if (error) {
         console.error("fetchProfile error:", error);
       }
@@ -61,41 +63,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    console.log("[AuthContext] useEffect running");
     const supabase = getSupabase();
-    console.log("[AuthContext] supabase client created");
 
-    const getSession = async () => {
-      console.log("[AuthContext] getSession called, calling supabase.auth.getSession()...");
-      try {
-        console.log("[AuthContext] supabase URL:", (supabase as any).supabaseUrl);
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        console.log("[AuthContext] getSession resolved", { session: !!session, error: sessionError });
-        const currentUser = session?.user ?? null;
-        setUser(currentUser);
-        if (currentUser) {
-          await fetchProfile(currentUser.id);
-        }
-      } catch (e) {
-        console.error("getSession error:", e);
-        setUser(null);
-      } finally {
-        setIsLoading(false);
+    // Initial load
+    supabase.auth.getUser().then(async ({ data: { user: currentUser } }) => {
+      setUser(currentUser);
+      if (currentUser) {
+        await fetchProfile(currentUser.id);
       }
-    };
+      setIsLoading(false);
+    }).catch(() => {
+      setIsLoading(false);
+    });
 
-    getSession();
-
+    // Listen only for actual auth changes (sign in/out), not token refreshes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        const currentUser = session?.user ?? null;
-        setUser(currentUser);
-        if (currentUser) {
-          await fetchProfile(currentUser.id);
-        } else {
+      async (event, session) => {
+        if (event === "SIGNED_IN") {
+          const currentUser = session?.user ?? null;
+          setUser(currentUser);
+          if (currentUser) {
+            await fetchProfile(currentUser.id);
+          }
+        } else if (event === "SIGNED_OUT") {
+          setUser(null);
           setProfile(null);
         }
-        setIsLoading(false);
       }
     );
 

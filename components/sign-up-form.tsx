@@ -3,13 +3,6 @@
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
@@ -20,6 +13,8 @@ export function SignUpForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
@@ -67,6 +62,10 @@ export function SignUpForm({
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/`,
+          data: {
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
+          },
         },
       });
       if (error) throw error;
@@ -92,70 +91,113 @@ export function SignUpForm({
   };
 
   return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl">Créer un compte</CardTitle>
-          <CardDescription>Inscrivez-vous pour accéder à Lya</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSignUp}>
-            <div className="flex flex-col gap-6">
+    <div className={cn("flex flex-col items-center gap-8", className)} {...props}>
+      {/* Logo */}
+      <div className="flex flex-col items-center gap-3">
+        <svg
+          width="48"
+          height="48"
+          viewBox="0 0 28 28"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle cx="14" cy="14" r="13" stroke="hsl(153 51% 30%)" strokeWidth="1.5" />
+          <circle cx="14" cy="14" r="4" fill="hsl(153 51% 30%)" />
+          <path d="M14 10 C14 10, 8 4, 5 7" stroke="hsl(153 51% 30%)" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
+        </svg>
+        <h1 className="text-2xl font-semibold tracking-tight">Lya</h1>
+        <p className="text-sm text-muted-foreground">Créez votre compte</p>
+      </div>
+
+      {/* Form */}
+      <div className="w-full rounded-2xl border bg-card p-6 shadow-sm">
+        <form onSubmit={handleSignUp}>
+          <div className="flex flex-col gap-5">
+            <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="firstName">Prénom</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="vous@exemple.com"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="password">Mot de passe</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="repeat-password">Confirmer le mot de passe</Label>
-                <Input
-                  id="repeat-password"
-                  type="password"
-                  required
-                  value={repeatPassword}
-                  onChange={(e) => setRepeatPassword(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="promo-code">Code promo (optionnel)</Label>
-                <Input
-                  id="promo-code"
+                  id="firstName"
                   type="text"
-                  placeholder="Entrez votre code promo"
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value)}
+                  placeholder="Votre prénom"
+                  required
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
                 />
               </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Création du compte..." : "S'inscrire"}
-              </Button>
+              <div className="grid gap-2">
+                <Label htmlFor="lastName">Nom</Label>
+                <Input
+                  id="lastName"
+                  type="text"
+                  placeholder="Votre nom"
+                  required
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="mt-4 text-center text-sm">
-              Déjà un compte ?{" "}
-              <Link href="/auth/login" className="underline underline-offset-4">
-                Se connecter
-              </Link>
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="vous@exemple.com"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
-          </form>
-        </CardContent>
-      </Card>
+            <div className="grid gap-2">
+              <Label htmlFor="password">Mot de passe</Label>
+              <Input
+                id="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="repeat-password">Confirmer le mot de passe</Label>
+              <Input
+                id="repeat-password"
+                type="password"
+                required
+                value={repeatPassword}
+                onChange={(e) => setRepeatPassword(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="promo-code">
+                Code promo <span className="text-muted-foreground font-normal">(optionnel)</span>
+              </Label>
+              <Input
+                id="promo-code"
+                type="text"
+                placeholder="Entrez votre code promo"
+                value={promoCode}
+                onChange={(e) => setPromoCode(e.target.value)}
+              />
+            </div>
+            {error && <p className="text-sm text-red-500">{error}</p>}
+            <Button
+              type="submit"
+              className="w-full bg-golf text-golf-foreground hover:bg-golf/90"
+              disabled={isLoading}
+            >
+              {isLoading ? "Création du compte..." : "S'inscrire"}
+            </Button>
+          </div>
+        </form>
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        Déjà un compte ?{" "}
+        <Link href="/auth/login" className="text-golf hover:underline font-medium">
+          Se connecter
+        </Link>
+      </p>
     </div>
   );
 }

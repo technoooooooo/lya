@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -13,24 +14,54 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { CreditCard, ExternalLink } from "lucide-react";
 
 export default function AccountPage() {
   const { user, profile, isLoading } = useAuth();
+
+  // Email change
+  const [newEmail, setNewEmail] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailSuccess, setEmailSuccess] = useState(false);
+  const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
+
+  // Password change
   const [newPassword, setNewPassword] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  // Stripe portal
+  const [isLoadingPortal, setIsLoadingPortal] = useState(false);
+
+  const handleUpdateEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingEmail(true);
+    setEmailError(null);
+    setEmailSuccess(false);
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({ email: newEmail });
+      if (error) throw error;
+      setEmailSuccess(true);
+      setNewEmail("");
+    } catch (error: unknown) {
+      setEmailError(error instanceof Error ? error.message : "Une erreur est survenue");
+    } finally {
+      setIsUpdatingEmail(false);
+    }
+  };
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsUpdating(true);
+    setIsUpdatingPassword(true);
     setPasswordError(null);
     setPasswordSuccess(false);
 
     if (newPassword.length < 6) {
       setPasswordError("Le mot de passe doit contenir au moins 6 caractères");
-      setIsUpdating(false);
+      setIsUpdatingPassword(false);
       return;
     }
 
@@ -43,11 +74,26 @@ export default function AccountPage() {
     } catch (error: unknown) {
       setPasswordError(error instanceof Error ? error.message : "Une erreur est survenue");
     } finally {
-      setIsUpdating(false);
+      setIsUpdatingPassword(false);
     }
   };
 
-  if (isLoading) {
+  const handleManageSubscription = async () => {
+    setIsLoadingPortal(true);
+    try {
+      const res = await fetch("/api/stripe/portal", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        window.location.href = data.data.url;
+      }
+    } catch {
+      // Portal not available
+    } finally {
+      setIsLoadingPortal(false);
+    }
+  };
+
+  if (isLoading && !user) {
     return (
       <div className="max-w-2xl mx-auto p-8">
         <p className="text-muted-foreground">Chargement...</p>
@@ -55,40 +101,64 @@ export default function AccountPage() {
     );
   }
 
+  const subscriptionLabel =
+    profile?.subscription_status === "active"
+      ? "Actif"
+      : profile?.subscription_status === "past_due"
+        ? "En retard de paiement"
+        : "Inactif";
+
+  const subscriptionVariant =
+    profile?.subscription_status === "active"
+      ? "default"
+      : profile?.subscription_status === "past_due"
+        ? "secondary"
+        : "outline";
+
   return (
     <div className="max-w-2xl mx-auto p-8 space-y-6">
-      <h2 className="text-2xl font-bold">Mon compte</h2>
+      <h2 className="text-2xl font-bold">Compte</h2>
 
+      {/* Email */}
       <Card>
         <CardHeader>
-          <CardTitle>Informations</CardTitle>
+          <CardTitle>Adresse email</CardTitle>
+          <CardDescription>
+            Votre email actuel : <span className="font-medium text-foreground">{user?.email}</span>
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label className="text-muted-foreground">Email</Label>
-            <p className="font-medium">{user?.email}</p>
-          </div>
-          <div>
-            <Label className="text-muted-foreground">Abonnement</Label>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant={profile?.subscription_status === "active" ? "default" : "secondary"}>
-                {profile?.subscription_status === "active" ? "Actif" : "Inactif"}
-              </Badge>
-              {profile?.subscription_type && (
-                <span className="text-sm text-muted-foreground">
-                  ({profile.subscription_type === "promo" ? "Code promo" : "Payant"})
-                </span>
-              )}
+        <CardContent>
+          <form onSubmit={handleUpdateEmail} className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="new-email">Nouvel email</Label>
+              <Input
+                id="new-email"
+                type="email"
+                required
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder="nouveau@email.com"
+              />
             </div>
-          </div>
+            {emailError && <p className="text-sm text-red-500">{emailError}</p>}
+            {emailSuccess && (
+              <p className="text-sm text-green-600">
+                Un email de confirmation a été envoyé à votre nouvelle adresse
+              </p>
+            )}
+            <Button type="submit" disabled={isUpdatingEmail}>
+              {isUpdatingEmail ? "Mise à jour..." : "Modifier l'email"}
+            </Button>
+          </form>
         </CardContent>
       </Card>
 
+      {/* Password */}
       <Card>
         <CardHeader>
-          <CardTitle>Modifier le mot de passe</CardTitle>
+          <CardTitle>Mot de passe</CardTitle>
           <CardDescription>
-            Entrez un nouveau mot de passe pour votre compte
+            Modifiez votre mot de passe de connexion
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -107,10 +177,50 @@ export default function AccountPage() {
             {passwordSuccess && (
               <p className="text-sm text-green-600">Mot de passe mis à jour</p>
             )}
-            <Button type="submit" disabled={isUpdating}>
-              {isUpdating ? "Mise à jour..." : "Mettre à jour"}
+            <Button type="submit" disabled={isUpdatingPassword}>
+              {isUpdatingPassword ? "Mise à jour..." : "Modifier le mot de passe"}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* Subscription / Stripe */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5" />
+            Abonnement
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Badge variant={subscriptionVariant as "default" | "secondary" | "outline"}>
+              {subscriptionLabel}
+            </Badge>
+            {profile?.subscription_type && (
+              <span className="text-sm text-muted-foreground">
+                ({profile.subscription_type === "promo" ? "Code promo" : "Payant"})
+              </span>
+            )}
+          </div>
+
+          {profile?.stripe_customer_id && (
+            <Button
+              variant="outline"
+              onClick={handleManageSubscription}
+              disabled={isLoadingPortal}
+              className="gap-2"
+            >
+              <ExternalLink className="h-4 w-4" />
+              {isLoadingPortal ? "Redirection..." : "Gérer mon abonnement"}
+            </Button>
+          )}
+
+          {!profile?.stripe_customer_id && profile?.subscription_status !== "active" && (
+            <p className="text-sm text-muted-foreground">
+              Aucun abonnement actif. Contactez votre coach pour obtenir un accès.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

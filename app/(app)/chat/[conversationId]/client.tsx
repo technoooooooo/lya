@@ -8,6 +8,7 @@ import type { Message } from "@/types/chat";
 export function ChatPageClient({ conversationId }: { conversationId: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [pillarId, setPillarId] = useState<string | undefined>();
+  const [pillarName, setPillarName] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -16,12 +17,16 @@ export function ChatPageClient({ conversationId }: { conversationId: string }) {
 
       const { data: conv } = await supabase
         .from("conversations")
-        .select("pillar_id")
+        .select("pillar_id, pillars(name)")
         .eq("id", conversationId)
         .single();
 
       if (conv?.pillar_id) {
         setPillarId(conv.pillar_id);
+        const pillar = (conv as Record<string, unknown>).pillars as { name: string } | null;
+        setPillarName(pillar?.name);
+      } else {
+        setPillarName("Global");
       }
 
       const { data: msgs } = await supabase
@@ -49,6 +54,7 @@ export function ChatPageClient({ conversationId }: { conversationId: string }) {
     <ChatInterface
       conversationId={conversationId}
       pillarId={pillarId}
+      pillarName={pillarName}
       initialMessages={messages}
     />
   );

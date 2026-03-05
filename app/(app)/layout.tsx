@@ -1,8 +1,6 @@
 import { AuthProvider } from "@/contexts/AuthContext";
-import { AuthButton } from "@/components/auth-button";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { PWAInstallPrompt } from "@/components/shared/PWAInstallPrompt";
-import Link from "next/link";
 
 export default function AppLayout({
   children,
@@ -11,19 +9,9 @@ export default function AppLayout({
 }) {
   return (
     <AuthProvider>
-      <div className="h-screen flex flex-col">
-        <header className="border-b shrink-0">
-          <div className="flex items-center justify-between px-4 py-3">
-            <Link href="/" className="text-xl font-bold">
-              Lya
-            </Link>
-            <AuthButton />
-          </div>
-        </header>
-        <div className="flex flex-1 overflow-hidden">
-          <ChatSidebar />
-          <main className="flex-1 overflow-y-auto">{children}</main>
-        </div>
+      <div className="h-screen flex">
+        <ChatSidebar />
+        <main className="flex-1 overflow-y-auto">{children}</main>
         <PWAInstallPrompt />
       </div>
     </AuthProvider>

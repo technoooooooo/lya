@@ -10,7 +10,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Users, Loader2 } from "lucide-react";
+import { Users, Loader2, Copy, Check, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import type { Profile } from "@/types/database";
 
 export default function AdminUsersPage() {
@@ -18,6 +19,8 @@ export default function AdminUsersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -66,6 +69,12 @@ export default function AdminUsersPage() {
     return id.length > 8 ? `${id.slice(0, 8)}...` : id;
   };
 
+  const copyId = async (id: string) => {
+    await navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("fr-FR", {
       day: "2-digit",
@@ -73,6 +82,17 @@ export default function AdminUsersPage() {
       year: "numeric",
     });
   };
+
+  const filteredProfiles = profiles.filter((p) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      (p.first_name?.toLowerCase().includes(q)) ||
+      (p.last_name?.toLowerCase().includes(q)) ||
+      (p.golf_club?.toLowerCase().includes(q)) ||
+      p.user_id.toLowerCase().includes(q)
+    );
+  });
 
   if (isLoading) {
     return (
@@ -108,14 +128,32 @@ export default function AdminUsersPage() {
         <CardHeader>
           <CardTitle>Liste des utilisateurs</CardTitle>
           <CardDescription>
-            Consultez et gerez les comptes utilisateurs
+            Consultez et gérez les comptes utilisateurs
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher par nom, prénom, golf ou ID..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                    Prénom
+                  </th>
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                    Nom
+                  </th>
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                    Golf
+                  </th>
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">
                     User ID
                   </th>
@@ -126,9 +164,6 @@ export default function AdminUsersPage() {
                     Abonnement
                   </th>
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                    Type
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
                     Actif
                   </th>
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">
@@ -137,15 +172,34 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {profiles.map((profile) => (
+                {filteredProfiles.map((profile) => (
                   <tr
                     key={profile.id}
                     className="border-b last:border-b-0 hover:bg-muted/50"
                   >
+                    <td className="py-3 px-4">
+                      {profile.first_name || <span className="text-muted-foreground">-</span>}
+                    </td>
+                    <td className="py-3 px-4">
+                      {profile.last_name || <span className="text-muted-foreground">-</span>}
+                    </td>
+                    <td className="py-3 px-4 text-muted-foreground">
+                      {profile.golf_club || "-"}
+                    </td>
                     <td className="py-3 px-4 font-mono text-xs">
-                      <span title={profile.user_id}>
+                      <button
+                        type="button"
+                        onClick={() => copyId(profile.user_id)}
+                        className="inline-flex items-center gap-1.5 hover:text-foreground text-muted-foreground transition-colors cursor-pointer"
+                        title={`Copier ${profile.user_id}`}
+                      >
                         {truncateId(profile.user_id)}
-                      </span>
+                        {copiedId === profile.user_id ? (
+                          <Check className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
                     </td>
                     <td className="py-3 px-4">
                       <Badge
@@ -170,9 +224,6 @@ export default function AdminUsersPage() {
                       </Badge>
                     </td>
                     <td className="py-3 px-4">
-                      {profile.subscription_type ?? "-"}
-                    </td>
-                    <td className="py-3 px-4">
                       <Button
                         variant={profile.is_active ? "default" : "outline"}
                         size="sm"
@@ -195,13 +246,13 @@ export default function AdminUsersPage() {
                     </td>
                   </tr>
                 ))}
-                {profiles.length === 0 && (
+                {filteredProfiles.length === 0 && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={8}
                       className="py-8 text-center text-muted-foreground"
                     >
-                      Aucun utilisateur
+                      {search ? "Aucun résultat" : "Aucun utilisateur"}
                     </td>
                   </tr>
                 )}

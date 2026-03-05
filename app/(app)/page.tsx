@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 import { ChatInterface } from "@/components/chat/ChatInterface";
 import { PillarCard } from "@/components/PillarCard";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import type { Pillar } from "@/types/chat";
 
 export default function HomePage() {
   const router = useRouter();
+  const { profile } = useAuth();
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPillarId, setSelectedPillarId] = useState<string | null>(null);
@@ -50,6 +52,7 @@ export default function HomePage() {
   };
 
   if (showChat) {
+    const selectedPillar = pillars.find((p) => p.id === selectedPillarId);
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-2 px-4 py-2 border-b shrink-0">
@@ -57,18 +60,14 @@ export default function HomePage() {
             <ArrowLeft className="h-4 w-4 mr-1" />
             Retour aux piliers
           </Button>
-          {selectedPillarId && (
-            <span className="text-sm text-muted-foreground">
-              {pillars.find((p) => p.id === selectedPillarId)?.name}
-            </span>
-          )}
-          {!selectedPillarId && (
-            <span className="text-sm text-muted-foreground">Mode Global</span>
-          )}
+          <span className="text-sm text-muted-foreground">
+            {selectedPillar?.name || "Mode Global"}
+          </span>
         </div>
         <div className="flex-1 overflow-hidden">
           <ChatInterface
             pillarId={selectedPillarId || undefined}
+            pillarName={selectedPillar?.name || (selectedPillarId ? undefined : "Global")}
             onConversationCreated={handleConversationCreated}
           />
         </div>
@@ -79,11 +78,17 @@ export default function HomePage() {
   return (
     <div className="flex flex-col items-center justify-center h-full p-6">
       <div className="max-w-3xl w-full space-y-8">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold">Bienvenue sur Lya</h1>
+        <div className="text-center space-y-4">
+          <img
+            src="/images/mathieu.jpg"
+            alt="Mathieu"
+            className="h-24 w-24 rounded-full object-cover mx-auto"
+          />
+          <h1 className="text-3xl font-bold">
+            Bonjour{profile?.first_name ? `, ${profile.first_name}` : ""}
+          </h1>
           <p className="text-muted-foreground text-lg">
-            Votre assistant golf personnel. Choisissez un pilier pour commencer
-            une conversation ciblée.
+            Choisissez un pilier pour commencer une conversation ciblée.
           </p>
         </div>
 

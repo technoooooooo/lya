@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Send, Mic, MicOff, Loader2 } from "lucide-react";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 
@@ -84,6 +84,9 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
     if (!message.trim() || isStreaming) return;
     onSend(message.trim());
     setMessage("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -93,52 +96,70 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
     }
   };
 
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isBusy = isStreaming || isTranscribing;
 
+  const autoResize = () => {
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    }
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="border-t p-4">
+    <form onSubmit={handleSubmit} className="px-4 pb-4 pt-2">
       <div className="max-w-3xl mx-auto flex flex-col gap-2">
         {voiceError && (
           <p className="text-sm text-destructive px-1">{voiceError}</p>
         )}
-        <div className="flex gap-2">
+        <div className="rounded-2xl border bg-muted/40 p-3">
           <textarea
+            ref={textareaRef}
             value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            onChange={(e) => {
+              setMessage(e.target.value);
+              autoResize();
+            }}
             onKeyDown={handleKeyDown}
             placeholder={
               isTranscribing
                 ? "Transcription en cours..."
                 : "Posez votre question..."
             }
-            className="flex-1 resize-none rounded-lg border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[48px] max-h-[200px]"
+            className="w-full resize-none bg-transparent px-1 py-1 text-sm focus:outline-none min-h-[24px] max-h-[200px] placeholder:text-muted-foreground"
             rows={1}
             disabled={isBusy}
           />
-          <Button
-            type="button"
-            size="icon"
-            variant={isRecording ? "destructive" : "outline"}
-            onClick={handleMicClick}
-            disabled={isTranscribing || isStreaming}
-            aria-label={isRecording ? "Arreter l'enregistrement" : "Dictee vocale"}
-            className={isRecording ? "animate-pulse" : ""}
-          >
-            {isTranscribing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : isRecording ? (
-              <MicOff className="h-4 w-4" />
-            ) : (
-              <Mic className="h-4 w-4" />
-            )}
-          </Button>
-          <Button
-            type="submit"
-            size="icon"
-            disabled={!message.trim() || isBusy}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center justify-between mt-2">
+            <div />
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handleMicClick}
+                disabled={isTranscribing || isStreaming}
+                aria-label={isRecording ? "Arreter l'enregistrement" : "Dictee vocale"}
+                className={`p-2 rounded-lg transition-colors hover:bg-muted disabled:opacity-50 ${
+                  isRecording ? "text-destructive animate-pulse" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {isTranscribing ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : isRecording ? (
+                  <MicOff className="h-5 w-5" />
+                ) : (
+                  <Mic className="h-5 w-5" />
+                )}
+              </button>
+              <button
+                type="submit"
+                disabled={!message.trim() || isBusy}
+                className="p-2 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30"
+              >
+                <Send className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </form>
