@@ -65,36 +65,44 @@ export default function AdminDashboardPage() {
     );
   }
 
+  const plural = (n: number) => n > 1 ? "s" : "";
+
+  const totalUsers = metrics?.totalUsers ?? 0;
+  const activeSubs = metrics?.activeSubscriptions ?? 0;
+  const totalConvos = metrics?.totalConversations ?? 0;
+  const totalMsgs = metrics?.totalMessages ?? 0;
+  const usersToday = metrics?.usersToday ?? 0;
+
   const cards = [
     {
-      title: "Total utilisateurs",
-      value: metrics?.totalUsers ?? 0,
+      title: `Total utilisateur${plural(totalUsers)}`,
+      value: totalUsers,
       icon: Users,
-      description: "Comptes enregistrés",
+      description: `Compte${plural(totalUsers)} enregistré${plural(totalUsers)}`,
     },
     {
-      title: "Abonnements actifs",
-      value: metrics?.activeSubscriptions ?? 0,
+      title: `Abonnement${plural(activeSubs)} actif${plural(activeSubs)}`,
+      value: activeSubs,
       icon: CreditCard,
-      description: "Utilisateurs avec abonnement actif",
+      description: `Utilisateur${plural(activeSubs)} avec abonnement actif`,
     },
     {
-      title: "Conversations",
-      value: metrics?.totalConversations ?? 0,
+      title: `Conversation${plural(totalConvos)}`,
+      value: totalConvos,
       icon: MessagesSquare,
-      description: "Conversations totales",
+      description: `Conversation${plural(totalConvos)} totale${plural(totalConvos)}`,
     },
     {
-      title: "Messages",
-      value: metrics?.totalMessages ?? 0,
+      title: `Message${plural(totalMsgs)}`,
+      value: totalMsgs,
       icon: MessageSquare,
-      description: "Messages échangés",
+      description: `Message${plural(totalMsgs)} échangé${plural(totalMsgs)}`,
     },
     {
-      title: "Nouveaux aujourd'hui",
-      value: metrics?.usersToday ?? 0,
+      title: `Nouveau${usersToday > 1 ? "x" : ""} aujourd'hui`,
+      value: usersToday,
       icon: UserPlus,
-      description: "Inscriptions du jour",
+      description: `Inscription${plural(usersToday)} du jour`,
     },
   ];
 

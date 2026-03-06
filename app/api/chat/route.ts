@@ -21,18 +21,20 @@ export async function POST(request: Request) {
     // Check subscription status
     const { data: userProfile } = await supabase
       .from("profiles")
-      .select("subscription_status, is_active")
+      .select("subscription_status, is_active, first_name")
       .eq("user_id", user.id)
       .single();
 
-    if (!userProfile?.is_active) {
+    const isDev = process.env.NODE_ENV === "development";
+
+    if (!isDev && !userProfile?.is_active) {
       return NextResponse.json(
         { success: false, error: { message: "Votre compte est désactivé", code: "ACCOUNT_DISABLED" } },
         { status: 403 }
       );
     }
 
-    if (userProfile.subscription_status !== "active") {
+    if (!isDev && userProfile?.subscription_status !== "active") {
       return NextResponse.json(
         { success: false, error: { message: "Abonnement requis pour utiliser le chat", code: "SUBSCRIPTION_REQUIRED" } },
         { status: 403 }
@@ -122,7 +124,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const systemPrompt = await buildSystemPrompt(pillarPrePrompt);
+    const systemPrompt = await buildSystemPrompt(pillarPrePrompt, userProfile?.first_name ?? undefined);
     const messages = buildMessages(
       systemPrompt,
       (history || []).slice(0, -1), // exclude the message we just inserted (it's already in the user message param)

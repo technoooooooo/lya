@@ -48,7 +48,7 @@ export default function HomePage() {
   };
 
   const handleConversationCreated = (id: string) => {
-    router.replace(`/chat/${id}`);
+    window.history.replaceState(null, "", `/chat/${id}`);
   };
 
   if (showChat) {

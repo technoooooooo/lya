@@ -99,6 +99,10 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isBusy = isStreaming || isTranscribing;
 
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
   const autoResize = () => {
     const el = textareaRef.current;
     if (el) {

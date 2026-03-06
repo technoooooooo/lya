@@ -1,7 +1,7 @@
 import type { AIMessage } from "./types";
 import { createClient } from "@/lib/supabase/server";
 
-export async function buildSystemPrompt(pillarPrePrompt?: string): Promise<string> {
+export async function buildSystemPrompt(pillarPrePrompt?: string, userName?: string): Promise<string> {
   const supabase = await createClient();
 
   // Get main system prompt from ai_config
@@ -26,6 +26,12 @@ export async function buildSystemPrompt(pillarPrePrompt?: string): Promise<strin
     .eq("is_active", true);
 
   let fullPrompt = systemPrompt;
+
+  // Add identity and user context
+  fullPrompt += `\n\n## Identité\nTu es Mathieu, coach de golf. Tu parles en ton propre nom, en tant que Mathieu. Tu ne dois jamais dire que tu es une IA ou un assistant virtuel.`;
+  if (userName) {
+    fullPrompt += `\n\n## Utilisateur actuel\nL'utilisateur qui te parle s'appelle ${userName}. Adresse-toi à lui/elle par son prénom.`;
+  }
 
   // Add pillar-specific pre-prompt if provided
   if (pillarPrePrompt) {

@@ -18,6 +18,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Save,
   Plus,
   Pencil,
@@ -27,6 +34,10 @@ import {
   Shield,
   MessageSquare,
   AlertCircle,
+  MoreVertical,
+  FileText,
+  Paperclip,
+  Power,
 } from "lucide-react";
 import type { AIConfig, KnowledgeDocumentWithFiles, Guardrail } from "@/types/admin";
 import FileUploader from "@/components/admin/FileUploader";
@@ -310,92 +321,112 @@ function KnowledgeSection() {
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5" />
-                Base de connaissances
-              </CardTitle>
-              <CardDescription>
-                Documents utilisés comme contexte par l&apos;IA pour enrichir ses réponses.
-              </CardDescription>
-            </div>
-            <Button onClick={openCreate}>
-              <Plus className="h-4 w-4" />
-              Ajouter
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {error && (
-            <div className="mb-4 flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              {error}
-            </div>
-          )}
-          {documents.length === 0 ? (
-            <p className="py-8 text-center text-muted-foreground">
-              Aucun document. Cliquez sur &quot;Ajouter&quot; pour créer le premier.
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-semibold">
+              <BookOpen className="h-5 w-5" />
+              Base de connaissances
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Documents utilisés comme contexte par l&apos;IA pour enrichir ses réponses.
             </p>
-          ) : (
-            <div className="divide-y rounded-md border">
-              {documents.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="flex items-center justify-between gap-4 p-4"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate font-medium">{doc.title}</p>
+          </div>
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            Ajouter
+          </Button>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        {documents.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16">
+            <div className="rounded-full bg-muted p-3 mb-3">
+              <BookOpen className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <p className="font-medium">Aucun document</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Cliquez sur &quot;Ajouter&quot; pour créer le premier.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {documents.map((doc) => (
+              <div
+                key={doc.id}
+                className={`group relative rounded-xl border bg-card p-4 transition-all hover:shadow-md ${
+                  !doc.is_active ? "opacity-60" : ""
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  {/* Content */}
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                        <FileText className="h-4 w-4 text-primary" />
+                      </div>
+                      <h4 className="truncate font-medium leading-none">{doc.title}</h4>
+                    </div>
+                    <p className="line-clamp-2 text-sm text-muted-foreground pl-[42px]">
+                      {doc.content.substring(0, 150)}
+                      {doc.content.length > 150 ? "..." : ""}
+                    </p>
+                    {/* Meta badges */}
+                    <div className="flex items-center gap-2 pl-[42px]">
                       {doc.knowledge_files.length > 0 && (
-                        <Badge variant="outline">
-                          {doc.knowledge_files.length} fichier
-                          {doc.knowledge_files.length > 1 ? "s" : ""}
+                        <Badge variant="outline" className="gap-1 text-xs font-normal">
+                          <Paperclip className="h-3 w-3" />
+                          {doc.knowledge_files.length} fichier{doc.knowledge_files.length > 1 ? "s" : ""}
                         </Badge>
                       )}
                       {!doc.is_active && (
-                        <Badge variant="secondary">Inactif</Badge>
+                        <Badge variant="secondary" className="text-xs font-normal">Inactif</Badge>
                       )}
                     </div>
-                    <p className="mt-1 truncate text-sm text-muted-foreground">
-                      {doc.content.substring(0, 120)}
-                      {doc.content.length > 120 ? "..." : ""}
-                    </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor={`active-${doc.id}`} className="text-xs text-muted-foreground">
-                        Actif
-                      </Label>
-                      <Switch
-                        id={`active-${doc.id}`}
-                        checked={doc.is_active}
-                        onCheckedChange={() => handleToggleActive(doc)}
-                      />
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => openEdit(doc)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDeleteConfirmId(doc.id)}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+
+                  {/* Actions */}
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Switch
+                      id={`active-${doc.id}`}
+                      checked={doc.is_active}
+                      onCheckedChange={() => handleToggleActive(doc)}
+                    />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity data-[state=open]:opacity-100">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-44">
+                        <DropdownMenuItem onClick={() => openEdit(doc)}>
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Modifier
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => setDeleteConfirmId(doc.id)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Supprimer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Dialog création / édition */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -879,7 +910,7 @@ function GuardrailsSection() {
 
 export default function AdminAIPage() {
   return (
-    <div className="max-w-5xl mx-auto p-8">
+    <div className="max-w-7xl mx-auto p-8">
       <div className="mb-8">
         <h2 className="text-2xl font-bold">Gestion de l&apos;IA</h2>
         <p className="mt-1 text-muted-foreground">

@@ -141,9 +141,9 @@ export function ChatSidebar() {
                     ? `${profile.first_name} ${profile.last_name}`
                     : profile?.first_name || user?.email || "Utilisateur"}
                 </div>
-                {profile?.golf_club && (
+                {(profile?.golf_club || profile?.role === "admin") && (
                   <div className="truncate text-xs text-muted-foreground">
-                    {profile.golf_club}
+                    {profile?.role === "admin" ? "Head Coach" : profile?.golf_club}
                   </div>
                 )}
               </div>

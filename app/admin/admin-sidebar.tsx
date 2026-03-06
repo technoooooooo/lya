@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Users, Bot, LogOut, ArrowLeft, User, Settings } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, ArrowLeft, User, Settings, Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   DropdownMenu,
@@ -12,6 +13,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+function LyaIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 28 28"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+    >
+      <circle cx="14" cy="14" r="13" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="14" cy="14" r="4" fill="currentColor" />
+      <path d="M14 10 C14 10, 8 4, 5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+    </svg>
+  );
+}
 
 const navItems = [
   {
@@ -27,13 +43,14 @@ const navItems = [
   {
     label: "Configuration IA",
     href: "/admin/ai",
-    icon: Bot,
+    icon: LyaIcon,
   },
 ];
 
 export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { theme, setTheme } = useTheme();
   const { user, profile } = useAuth();
 
   return (
@@ -107,7 +124,7 @@ export function AdminSidebar() {
                     : profile?.first_name || user?.email || "Administrateur"}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {user?.email}
+                  Head Coach
                 </div>
               </div>
             </button>
@@ -119,7 +136,20 @@ export function AdminSidebar() {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => router.push("/")}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Retour à l&apos;app
+              Voir l&apos;app
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+              {theme === "dark" ? (
+                <>
+                  <Sun className="h-4 w-4 mr-2" />
+                  Mode clair
+                </>
+              ) : (
+                <>
+                  <Moon className="h-4 w-4 mr-2" />
+                  Mode sombre
+                </>
+              )}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

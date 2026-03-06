@@ -4,9 +4,10 @@ import type { MessageRole } from "@/types/chat";
 interface ChatMessageProps {
   role: MessageRole;
   content: string;
+  userAvatarUrl?: string | null;
 }
 
-export function ChatMessage({ role, content }: ChatMessageProps) {
+export function ChatMessage({ role, content, userAvatarUrl }: ChatMessageProps) {
   return (
     <div
       className={cn(
@@ -14,6 +15,13 @@ export function ChatMessage({ role, content }: ChatMessageProps) {
         role === "user" ? "justify-end" : "justify-start"
       )}
     >
+      {role === "assistant" && (
+        <img
+          src="/images/mathieu.jpg"
+          alt="Mathieu"
+          className="h-8 w-8 rounded-full object-cover shrink-0 mr-2 mt-1"
+        />
+      )}
       <div
         className={cn(
           "max-w-[80%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap",
@@ -24,6 +32,13 @@ export function ChatMessage({ role, content }: ChatMessageProps) {
       >
         {content}
       </div>
+      {role === "user" && userAvatarUrl && (
+        <img
+          src={userAvatarUrl}
+          alt="Vous"
+          className="h-8 w-8 rounded-full object-cover shrink-0 ml-2 mt-1"
+        />
+      )}
     </div>
   );
 }

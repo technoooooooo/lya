@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { ChatInput } from "./ChatInput";
 import { ChatMessage } from "./ChatMessage";
 import { TypingIndicator } from "./TypingIndicator";
@@ -21,6 +22,7 @@ export function ChatInterface({
   initialMessages = [],
   onConversationCreated,
 }: ChatInterfaceProps) {
+  const { profile } = useAuth();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [streamingContent, setStreamingContent] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -111,7 +113,7 @@ export function ChatInterface({
       <div className="flex-1 overflow-y-auto p-4">
         <div className="max-w-3xl mx-auto space-y-4">
           {messages.map((msg) => (
-            <ChatMessage key={msg.id} role={msg.role} content={msg.content} />
+            <ChatMessage key={msg.id} role={msg.role} content={msg.content} userAvatarUrl={profile?.avatar_url} />
           ))}
           {isStreaming && streamingContent && (
             <ChatMessage role="assistant" content={streamingContent} />

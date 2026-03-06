@@ -43,6 +43,15 @@ export default function AdminInformationsPage() {
 
     try {
       const supabase = createClient();
+
+      // Ensure the browser client has an active session before storage operations
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setMessage({ type: "error", text: "Session expirée, veuillez vous reconnecter" });
+        setIsUploading(false);
+        return;
+      }
+
       const ext = file.name.split(".").pop();
       const path = `${user.id}/avatar.${ext}`;
 

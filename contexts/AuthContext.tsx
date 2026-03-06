@@ -23,10 +23,16 @@ const AuthContext = createContext<AuthContextType>({
   refreshProfile: async () => {},
 });
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+interface AuthProviderProps {
+  children: ReactNode;
+  initialUser?: User | null;
+  initialProfile?: Profile | null;
+}
+
+export function AuthProvider({ children, initialUser = null, initialProfile = null }: AuthProviderProps) {
+  const [user, setUser] = useState<User | null>(initialUser);
+  const [profile, setProfile] = useState<Profile | null>(initialProfile);
+  const [isLoading, setIsLoading] = useState(!initialUser);
   const supabaseRef = useRef<SupabaseClient | null>(null);
 
   const getSupabase = () => {
@@ -39,13 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchProfile = async (userId: string) => {
     try {
       const supabase = getSupabase();
-      console.log("[AuthContext] fetchProfile for", userId);
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("user_id", userId)
         .single();
-      console.log("[AuthContext] fetchProfile result", { data, error });
       if (error) {
         console.error("fetchProfile error:", error);
       }
@@ -65,29 +69,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const supabase = getSupabase();
 
-    // Initial load
-    supabase.auth.getUser().then(async ({ data: { user: currentUser } }) => {
-      setUser(currentUser);
-      if (currentUser) {
-        await fetchProfile(currentUser.id);
-      }
-      setIsLoading(false);
-    }).catch(() => {
-      setIsLoading(false);
-    });
-
-    // Listen only for actual auth changes (sign in/out), not token refreshes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (event === "SIGNED_IN") {
-          const currentUser = session?.user ?? null;
+        const currentUser = session?.user ?? null;
+
+        if (event === "SIGNED_OUT") {
+          setUser(null);
+          setProfile(null);
+          setIsLoading(false);
+        } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
           setUser(currentUser);
           if (currentUser) {
             await fetchProfile(currentUser.id);
           }
-        } else if (event === "SIGNED_OUT") {
-          setUser(null);
-          setProfile(null);
+          setIsLoading(false);
+        } else if (event === "INITIAL_SESSION") {
+          // If we already have server-side data, just sync the user object
+          // and skip the client-side profile fetch (avoids RLS timing issues)
+          if (initialProfile && currentUser) {
+            setUser(currentUser);
+          } else if (currentUser) {
+            setUser(currentUser);
+            await fetchProfile(currentUser.id);
+          }
+          setIsLoading(false);
         }
       }
     );
