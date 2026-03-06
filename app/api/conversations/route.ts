@@ -13,11 +13,23 @@ export async function GET() {
       );
     }
 
-    const { data: conversations, error } = await supabase
+    const { data: rawConversations, error } = await supabase
       .from("conversations")
-      .select("id, title, pillar_id, created_at, updated_at")
+      .select("id, title, pillar_id, created_at, updated_at, pillars(name)")
       .eq("user_id", user.id)
       .order("updated_at", { ascending: false });
+
+    const conversations = rawConversations?.map((conv) => {
+      const pillar = (conv as Record<string, unknown>).pillars as { name: string } | null;
+      return {
+        id: conv.id,
+        title: conv.title,
+        pillar_id: conv.pillar_id,
+        pillar_name: pillar?.name ?? null,
+        created_at: conv.created_at,
+        updated_at: conv.updated_at,
+      };
+    }) ?? [];
 
     if (error) {
       return NextResponse.json(

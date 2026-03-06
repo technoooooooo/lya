@@ -3,6 +3,7 @@ export interface Conversation {
   user_id: string;
   title: string | null;
   pillar_id: string | null;
+  pillar_name: string | null;
   created_at: string;
   updated_at: string;
 }

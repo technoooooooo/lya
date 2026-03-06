@@ -2,45 +2,35 @@
 
 import { useEffect, useState } from "react";
 import { ChatInterface } from "@/components/chat/ChatInterface";
-import { createClient } from "@/lib/supabase/client";
 import type { Message } from "@/types/chat";
 
 export function ChatPageClient({ conversationId }: { conversationId: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [pillarId, setPillarId] = useState<string | undefined>();
   const [pillarName, setPillarName] = useState<string | undefined>();
+  const [createdAt, setCreatedAt] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const supabase = createClient();
+        const res = await fetch(`/api/conversations/${conversationId}`);
+        const result = await res.json();
 
-        const { data: conv, error: convError } = await supabase
-          .from("conversations")
-          .select("pillar_id, pillars(name)")
-          .eq("id", conversationId)
-          .single();
+        if (!result.success) {
+          console.error("Error loading conversation:", result.error);
+          return;
+        }
 
-        if (convError) {
-          console.error("Error loading conversation:", convError);
-        } else if (conv?.pillar_id) {
-          setPillarId(conv.pillar_id);
-          const pillar = (conv as Record<string, unknown>).pillars as { name: string } | null;
-          setPillarName(pillar?.name);
+        const { conversation, messages: msgs } = result.data;
+
+        if (conversation.pillar_id) {
+          setPillarId(conversation.pillar_id);
+          setPillarName(conversation.pillar_name);
         } else {
           setPillarName("Global");
         }
-
-        const { data: msgs, error: msgsError } = await supabase
-          .from("messages")
-          .select("*")
-          .eq("conversation_id", conversationId)
-          .order("created_at", { ascending: true });
-
-        if (msgsError) {
-          console.error("Error loading messages:", msgsError);
-        }
+        setCreatedAt(conversation.created_at);
 
         setMessages(msgs || []);
       } catch (err) {
@@ -66,6 +56,7 @@ export function ChatPageClient({ conversationId }: { conversationId: string }) {
       conversationId={conversationId}
       pillarId={pillarId}
       pillarName={pillarName}
+      createdAt={createdAt}
       initialMessages={messages}
     />
   );

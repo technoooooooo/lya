@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
-import { Plus, MessageSquare, Sun, Moon, User, Settings, LogOut, PanelLeftClose, PanelLeft } from "lucide-react";
+import { Plus, Sun, Moon, User, Settings, LogOut, PanelLeftClose, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -105,13 +105,20 @@ export function ChatSidebar() {
                 key={conv.id}
                 href={`/chat/${conv.id}`}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted",
+                  "flex flex-col gap-1 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted",
                   pathname === `/chat/${conv.id}` && "bg-muted"
                 )}
               >
-                <MessageSquare className="h-4 w-4 shrink-0" />
                 <span className="truncate">
                   {conv.title || "Nouvelle conversation"}
+                </span>
+                <span className={cn(
+                  "inline-flex self-start items-center rounded-full px-2 py-0.5 text-[10px] font-medium leading-tight",
+                  conv.pillar_name
+                    ? "bg-muted-foreground/15 text-muted-foreground"
+                    : "bg-golf/15 text-golf"
+                )}>
+                  {conv.pillar_name || "Global"}
                 </span>
               </Link>
             ))}

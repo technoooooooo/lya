@@ -10,9 +10,37 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Users, Loader2, Copy, Check, Search } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Users, Loader2, Copy, Check, Search, MessageSquare, BarChart3 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Profile } from "@/types/database";
+
+interface PillarBreakdown {
+  pillarId: string | null;
+  pillarName: string;
+  count: number;
+  percentage: number;
+}
+
+interface UserStats {
+  totalConversations: number;
+  totalMessages: number;
+  breakdown: PillarBreakdown[];
+}
+
+const PILLAR_COLORS: Record<string, string> = {
+  Technique: "bg-green-700",
+  Mental: "bg-green-500",
+  Physique: "bg-emerald-400",
+  "Stratégie": "bg-lime-500",
+  "Matériel": "bg-teal-500",
+  Global: "bg-green-300",
+};
 
 export default function AdminUsersPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -21,6 +49,11 @@ export default function AdminUsersPage() {
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  // Modal state
+  const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -42,7 +75,25 @@ export default function AdminUsersPage() {
     fetchUsers();
   }, [fetchUsers]);
 
-  const toggleActive = async (userId: string, currentStatus: boolean) => {
+  const openUserStats = async (profile: Profile) => {
+    setSelectedUser(profile);
+    setUserStats(null);
+    setStatsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users/${profile.user_id}/stats`);
+      const json = await res.json();
+      if (json.success) {
+        setUserStats(json.data);
+      }
+    } catch {
+      // Stats will remain null, modal shows error state
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  const toggleActive = async (e: React.MouseEvent, userId: string, currentStatus: boolean) => {
+    e.stopPropagation();
     setTogglingUserId(userId);
     try {
       const res = await fetch(`/api/admin/users/${userId}`, {
@@ -69,7 +120,8 @@ export default function AdminUsersPage() {
     return id.length > 8 ? `${id.slice(0, 8)}...` : id;
   };
 
-  const copyId = async (id: string) => {
+  const copyId = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
     await navigator.clipboard.writeText(id);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
@@ -175,7 +227,8 @@ export default function AdminUsersPage() {
                 {filteredProfiles.map((profile) => (
                   <tr
                     key={profile.id}
-                    className="border-b last:border-b-0 hover:bg-muted/50"
+                    className="border-b last:border-b-0 hover:bg-muted/50 cursor-pointer"
+                    onClick={() => openUserStats(profile)}
                   >
                     <td className="py-3 px-4">
                       {profile.first_name || <span className="text-muted-foreground">-</span>}
@@ -189,7 +242,7 @@ export default function AdminUsersPage() {
                     <td className="py-3 px-4 font-mono text-xs">
                       <button
                         type="button"
-                        onClick={() => copyId(profile.user_id)}
+                        onClick={(e) => copyId(e, profile.user_id)}
                         className="inline-flex items-center gap-1.5 hover:text-foreground text-muted-foreground transition-colors cursor-pointer"
                         title={`Copier ${profile.user_id}`}
                       >
@@ -228,8 +281,8 @@ export default function AdminUsersPage() {
                         variant={profile.is_active ? "default" : "outline"}
                         size="sm"
                         disabled={togglingUserId === profile.user_id}
-                        onClick={() =>
-                          toggleActive(profile.user_id, profile.is_active)
+                        onClick={(e) =>
+                          toggleActive(e, profile.user_id, profile.is_active)
                         }
                       >
                         {togglingUserId === profile.user_id ? (
@@ -261,6 +314,86 @@ export default function AdminUsersPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* User Stats Modal */}
+      <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              {selectedUser?.first_name || selectedUser?.last_name
+                ? `${selectedUser?.first_name ?? ""} ${selectedUser?.last_name ?? ""}`.trim()
+                : "Utilisateur"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {statsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !userStats ? (
+            <p className="text-sm text-muted-foreground py-4">
+              Impossible de charger les statistiques.
+            </p>
+          ) : (
+            <div className="space-y-6">
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border p-3 text-center">
+                  <MessageSquare className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
+                  <div className="text-2xl font-bold">{userStats.totalConversations}</div>
+                  <div className="text-xs text-muted-foreground">Conversations</div>
+                </div>
+                <div className="rounded-lg border p-3 text-center">
+                  <MessageSquare className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
+                  <div className="text-2xl font-bold">{userStats.totalMessages}</div>
+                  <div className="text-xs text-muted-foreground">Messages</div>
+                </div>
+              </div>
+
+              {/* Pillar breakdown */}
+              {userStats.totalConversations === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  Aucune conversation
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium">Répartition par pilier</h4>
+
+                  {/* Bar chart */}
+                  <div className="flex h-4 rounded-full overflow-hidden">
+                    {userStats.breakdown.map((item) => (
+                      <div
+                        key={item.pillarName}
+                        className={`${PILLAR_COLORS[item.pillarName] || "bg-muted-foreground"} transition-all`}
+                        style={{ width: `${item.percentage}%` }}
+                        title={`${item.pillarName}: ${item.percentage}%`}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Legend */}
+                  <div className="space-y-2">
+                    {userStats.breakdown.map((item) => (
+                      <div key={item.pillarName} className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`h-3 w-3 rounded-full ${PILLAR_COLORS[item.pillarName] || "bg-muted-foreground"}`}
+                          />
+                          <span>{item.pillarName}</span>
+                        </div>
+                        <span className="text-muted-foreground">
+                          {item.count} conv. ({item.percentage}%)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
