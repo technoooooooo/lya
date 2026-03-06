@@ -1,3 +1,5 @@
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import type { MessageRole } from "@/types/chat";
 
@@ -24,13 +26,17 @@ export function ChatMessage({ role, content, userAvatarUrl }: ChatMessageProps) 
       )}
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap",
+          "max-w-[80%] rounded-2xl px-4 py-3 text-sm",
           role === "user"
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted"
+            ? "bg-primary text-primary-foreground whitespace-pre-wrap"
+            : "bg-muted prose prose-sm dark:prose-invert prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 max-w-none"
         )}
       >
-        {content}
+        {role === "assistant" ? (
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        ) : (
+          content
+        )}
       </div>
       {role === "user" && userAvatarUrl && (
         <img

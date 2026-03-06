@@ -86,6 +86,7 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
     setMessage("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
+      textareaRef.current.focus();
     }
   };
 
@@ -101,7 +102,13 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
 
   useEffect(() => {
     textareaRef.current?.focus();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isBusy) {
+      textareaRef.current?.focus();
+    }
+  }, [isBusy]);
 
   const autoResize = () => {
     const el = textareaRef.current;
