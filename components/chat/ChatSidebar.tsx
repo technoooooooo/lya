@@ -57,7 +57,7 @@ export function ChatSidebar() {
   return (
     <aside className="w-64 border-r bg-muted/30 flex flex-col h-full">
       {/* Header: logo + toggle */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-6">
+      <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <Link href="/" className="flex items-center gap-2.5">
           <svg
             width="28"
@@ -82,8 +82,21 @@ export function ChatSidebar() {
         </button>
       </div>
 
+      {/* Coach card */}
+      <div className="mx-3 mb-4 rounded-lg bg-muted/60 border border-border/50 p-3 flex items-center gap-3">
+        <img
+          src="/images/mathieu.jpg"
+          alt="Mathieu"
+          className="h-9 w-9 rounded-full object-cover shrink-0 ring-2 ring-green-500/30"
+        />
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Ton coach</p>
+          <p className="text-[13px] font-semibold text-foreground truncate leading-tight mt-0.5">Mathieu Lamote</p>
+        </div>
+      </div>
+
       {/* New chat */}
-      <div className="px-3 pb-3">
+      <div className="px-3 pb-2">
         <Link href="/">
           <Button className="w-full justify-start gap-2 bg-golf text-golf-foreground hover:bg-golf/90">
             <Plus className="h-4 w-4" />
