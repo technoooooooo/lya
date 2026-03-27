@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,9 @@ import {
   FileText,
   Paperclip,
   Power,
+  Upload,
+  X,
+  ImageIcon,
 } from "lucide-react";
 import type { AIConfig, KnowledgeDocumentWithFiles, Guardrail } from "@/types/admin";
 import FileUploader from "@/components/admin/FileUploader";
@@ -184,6 +187,9 @@ function KnowledgeSection() {
   const [formSaving, setFormSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingDragOver, setPendingDragOver] = useState(false);
+  const pendingInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDocuments = useCallback(async () => {
     setLoading(true);
@@ -211,6 +217,7 @@ function KnowledgeSection() {
     setEditingDoc(null);
     setFormTitle("");
     setFormContent("");
+    setPendingFiles([]);
     setDialogOpen(true);
   };
 
@@ -252,10 +259,30 @@ function KnowledgeSection() {
         });
         const json = await res.json();
         if (json.success) {
+          const newDoc = json.data;
+          let uploadedFiles: KnowledgeDocumentWithFiles["knowledge_files"] = [];
+
+          // Upload pending files if any
+          if (pendingFiles.length > 0) {
+            const formData = new FormData();
+            for (const file of pendingFiles) {
+              formData.append("files", file);
+            }
+            const uploadRes = await fetch(
+              `/api/admin/knowledge/${newDoc.id}/files`,
+              { method: "POST", body: formData }
+            );
+            const uploadJson = await uploadRes.json();
+            if (uploadJson.success) {
+              uploadedFiles = uploadJson.data;
+            }
+          }
+
           setDocuments((prev) => [
-            { ...json.data, knowledge_files: [] },
+            { ...newDoc, knowledge_files: uploadedFiles },
             ...prev,
           ]);
+          setPendingFiles([]);
           setDialogOpen(false);
         } else {
           setError(json.error?.message ?? "Erreur inconnue");
@@ -374,10 +401,16 @@ function KnowledgeSection() {
                       </div>
                       <h4 className="truncate font-medium leading-none">{doc.title}</h4>
                     </div>
-                    <p className="line-clamp-2 text-sm text-muted-foreground pl-[42px]">
-                      {doc.content.substring(0, 150)}
-                      {doc.content.length > 150 ? "..." : ""}
-                    </p>
+                    {doc.content ? (
+                      <p className="line-clamp-2 text-sm text-muted-foreground pl-[42px]">
+                        {doc.content.substring(0, 150)}
+                        {doc.content.length > 150 ? "..." : ""}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground/50 italic pl-[42px]">
+                        Aucun contenu texte
+                      </p>
+                    )}
                     {/* Meta badges */}
                     <div className="flex items-center gap-2 pl-[42px]">
                       {doc.knowledge_files.length > 0 && (
@@ -451,18 +484,8 @@ function KnowledgeSection() {
                 placeholder="Titre du document"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="doc-content">Contenu</Label>
-              <Textarea
-                id="doc-content"
-                value={formContent}
-                onChange={(e) => setFormContent(e.target.value)}
-                rows={12}
-                placeholder="Contenu du document..."
-                className="font-mono text-sm"
-              />
-            </div>
-            {editingDoc && (
+            {/* File upload / staging zone */}
+            {editingDoc ? (
               <div className="space-y-2">
                 <Label>Fichiers attachés</Label>
                 <FileUploader
@@ -480,7 +503,105 @@ function KnowledgeSection() {
                   }}
                 />
               </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Fichiers attachés</Label>
+                <div
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors ${
+                    pendingDragOver
+                      ? "border-primary bg-primary/5"
+                      : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                  }`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setPendingDragOver(true);
+                  }}
+                  onDragLeave={() => setPendingDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setPendingDragOver(false);
+                    const newFiles = Array.from(e.dataTransfer.files).filter(
+                      (f) =>
+                        ["image/png", "image/jpeg", "application/pdf"].includes(f.type) &&
+                        f.size <= 10 * 1024 * 1024
+                    );
+                    if (newFiles.length > 0) setPendingFiles((prev) => [...prev, ...newFiles]);
+                  }}
+                  onClick={() => pendingInputRef.current?.click()}
+                >
+                  <Upload className="h-8 w-8 text-muted-foreground" />
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Glissez vos fichiers ici ou cliquez pour parcourir
+                  </p>
+                  <p className="text-xs text-muted-foreground/70">
+                    PNG, JPG ou PDF — max 10 Mo par fichier
+                  </p>
+                  <input
+                    ref={pendingInputRef}
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.pdf"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const newFiles = Array.from(e.target.files ?? []).filter(
+                        (f) =>
+                          ["image/png", "image/jpeg", "application/pdf"].includes(f.type) &&
+                          f.size <= 10 * 1024 * 1024
+                      );
+                      if (newFiles.length > 0) setPendingFiles((prev) => [...prev, ...newFiles]);
+                      if (pendingInputRef.current) pendingInputRef.current.value = "";
+                    }}
+                  />
+                </div>
+                {pendingFiles.length > 0 && (
+                  <div className="divide-y rounded-md border">
+                    {pendingFiles.map((file, idx) => (
+                      <div key={`${file.name}-${idx}`} className="flex items-center gap-3 p-3">
+                        {file.type === "application/pdf" ? (
+                          <FileText className="h-5 w-5 shrink-0 text-red-500" />
+                        ) : (
+                          <ImageIcon className="h-5 w-5 shrink-0 text-blue-500" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{file.name}</p>
+                          <span className="text-xs text-muted-foreground">
+                            {file.size < 1024
+                              ? `${file.size} o`
+                              : file.size < 1024 * 1024
+                                ? `${(file.size / 1024).toFixed(1)} Ko`
+                                : `${(file.size / (1024 * 1024)).toFixed(1)} Mo`}
+                          </span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingFiles((prev) => prev.filter((_, i) => i !== idx));
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
+            <div className="space-y-2">
+              <Label htmlFor="doc-content">
+                Contenu <span className="text-muted-foreground">(optionnel)</span>
+              </Label>
+              <Textarea
+                id="doc-content"
+                value={formContent}
+                onChange={(e) => setFormContent(e.target.value)}
+                rows={8}
+                placeholder="Contexte additionnel ou notes sur le document..."
+                className="font-mono text-sm"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -491,7 +612,7 @@ function KnowledgeSection() {
             </Button>
             <Button
               onClick={handleSave}
-              disabled={formSaving || !formTitle.trim() || !formContent.trim()}
+              disabled={formSaving || !formTitle.trim()}
             >
               {formSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

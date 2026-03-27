@@ -69,16 +69,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { title, content } = body;
 
-    if (!title || !content) {
+    if (!title) {
       return NextResponse.json(
-        { success: false, error: { message: "Titre et contenu requis", code: "VALIDATION_ERROR" } },
+        { success: false, error: { message: "Titre requis", code: "VALIDATION_ERROR" } },
         { status: 400 }
       );
     }
 
     const { data, error } = await supabase
       .from("knowledge_documents")
-      .insert({ title, content, is_active: true })
+      .insert({ title, content: content || "", is_active: true })
       .select()
       .single();
 

@@ -86,28 +86,39 @@ export class GeminiProvider implements AIProvider {
     const encoder = new TextEncoder();
 
     return new ReadableStream({
-      async pull(controller) {
-        const { done, value } = await reader.read();
-        if (done) {
-          controller.close();
-          return;
-        }
+      async start(controller) {
+        let buffer = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              controller.close();
+              return;
+            }
 
-        const text = decoder.decode(value, { stream: true });
-        const lines = text.split("\n").filter((line) => line.trim() !== "");
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            // Keep the last (potentially incomplete) line in the buffer
+            buffer = lines.pop() || "";
 
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const json = JSON.parse(line.slice(6));
-              const content = json.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (content) {
-                controller.enqueue(encoder.encode(content));
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+              if (trimmed.startsWith("data: ")) {
+                try {
+                  const json = JSON.parse(trimmed.slice(6));
+                  const content = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                  if (content) {
+                    controller.enqueue(encoder.encode(content));
+                  }
+                } catch {
+                  // Skip malformed JSON
+                }
               }
-            } catch {
-              // Skip malformed JSON
             }
           }
+        } catch (error) {
+          controller.error(error);
         }
       },
     });

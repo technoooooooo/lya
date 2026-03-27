@@ -127,7 +127,7 @@ export async function POST(request: Request) {
     const systemPrompt = await buildSystemPrompt(pillarPrePrompt, userProfile?.first_name ?? undefined);
     const messages = buildMessages(
       systemPrompt,
-      (history || []).slice(0, -1), // exclude the message we just inserted (it's already in the user message param)
+      (history || []).slice(0, -1),
       sanitized
     );
 

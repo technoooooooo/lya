@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -16,6 +15,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Switch } from "@/components/ui/switch";
 import { Users, Loader2, Copy, Check, Search, MessageSquare, BarChart3 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Profile } from "@/types/database";
@@ -49,6 +59,9 @@ export default function AdminUsersPage() {
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  // Confirmation dialog state
+  const [confirmToggle, setConfirmToggle] = useState<{ userId: string; currentStatus: boolean } | null>(null);
 
   // Modal state
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
@@ -92,8 +105,14 @@ export default function AdminUsersPage() {
     }
   };
 
-  const toggleActive = async (e: React.MouseEvent, userId: string, currentStatus: boolean) => {
-    e.stopPropagation();
+  const handleToggleClick = (userId: string, currentStatus: boolean) => {
+    setConfirmToggle({ userId, currentStatus });
+  };
+
+  const confirmToggleActive = async () => {
+    if (!confirmToggle) return;
+    const { userId, currentStatus } = confirmToggle;
+    setConfirmToggle(null);
     setTogglingUserId(userId);
     try {
       const res = await fetch(`/api/admin/users/${userId}`, {
@@ -276,23 +295,17 @@ export default function AdminUsersPage() {
                           : "Inactif"}
                       </Badge>
                     </td>
-                    <td className="py-3 px-4">
-                      <Button
-                        variant={profile.is_active ? "default" : "outline"}
-                        size="sm"
-                        disabled={togglingUserId === profile.user_id}
-                        onClick={(e) =>
-                          toggleActive(e, profile.user_id, profile.is_active)
-                        }
-                      >
-                        {togglingUserId === profile.user_id ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : profile.is_active ? (
-                          "Oui"
-                        ) : (
-                          "Non"
-                        )}
-                      </Button>
+                    <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                      {togglingUserId === profile.user_id ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      ) : (
+                        <Switch
+                          checked={profile.is_active}
+                          onCheckedChange={() =>
+                            handleToggleClick(profile.user_id, profile.is_active)
+                          }
+                        />
+                      )}
                     </td>
                     <td className="py-3 px-4 text-muted-foreground">
                       {formatDate(profile.created_at)}
@@ -314,6 +327,28 @@ export default function AdminUsersPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={!!confirmToggle} onOpenChange={(open) => !open && setConfirmToggle(null)}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmToggle?.currentStatus
+                ? "Es-tu sûr de vouloir désactiver ce compte ?"
+                : "Es-tu sûr de vouloir activer ce compte ?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmToggle?.currentStatus
+                ? "L'utilisateur ne pourra plus accéder à l'application."
+                : "L'utilisateur pourra à nouveau accéder à l'application."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Non</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmToggleActive}>Oui</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* User Stats Modal */}
       <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
