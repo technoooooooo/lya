@@ -94,6 +94,13 @@ export default function InformationsPage() {
 
     try {
       const supabase = createClient();
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setMessage({ type: "error", text: "Session expirée, veuillez vous reconnecter" });
+        return;
+      }
+
       const { error } = await supabase
         .from("profiles")
         .update({
@@ -105,7 +112,7 @@ export default function InformationsPage() {
 
       if (error) throw error;
 
-      refreshProfile().catch(console.error);
+      await refreshProfile();
       setMessage({ type: "success", text: "Informations mises à jour" });
     } catch (err) {
       console.error("Save profile error:", err);
@@ -171,7 +178,7 @@ export default function InformationsPage() {
           <CardTitle>Informations personnelles</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSave} className="space-y-4">
+          <form onSubmit={handleSave} className="space-y-4" autoComplete="off">
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="firstName">Prénom</Label>
