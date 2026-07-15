@@ -26,21 +26,3 @@ export function sanitizeInput(input: string): { sanitized: string; flagged: bool
 
   return { sanitized, flagged };
 }
-
-export function validateOutput(output: string): { valid: boolean; reason?: string } {
-  // Check for common signs the AI broke out of its persona
-  const breakoutPatterns = [
-    /as an ai language model/i,
-    /i('m| am) (just )?a (large )?language model/i,
-    /i don't have personal/i,
-    /i was (made|created|trained) by (openai|google|anthropic)/i,
-  ];
-
-  for (const pattern of breakoutPatterns) {
-    if (pattern.test(output)) {
-      return { valid: false, reason: "AI persona breakout detected" };
-    }
-  }
-
-  return { valid: true };
-}

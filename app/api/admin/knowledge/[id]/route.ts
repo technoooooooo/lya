@@ -1,4 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { reindexDocumentContent } from "@/lib/ai/indexing";
+import { updateKnowledgeDocumentSchema } from "@/lib/validations/admin";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function PUT(
@@ -7,32 +9,37 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
+
+    const body = await request.json();
+    const parsed = updateKnowledgeDocumentSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: { message: "Non authentifié", code: "UNAUTHORIZED" } },
-        { status: 401 }
-      );
-    }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        { success: false, error: { message: "Accès interdit", code: "FORBIDDEN" } },
-        { status: 403 }
+        { success: false, error: { message: parsed.error.issues[0].message, code: "VALIDATION_ERROR" } },
+        { status: 400 }
       );
     }
 
-    const body = await request.json();
     const updates: Record<string, unknown> = {};
-    if (body.title !== undefined) updates.title = body.title;
-    if (body.content !== undefined) updates.content = body.content;
-    if (body.is_active !== undefined) updates.is_active = body.is_active;
+    if (parsed.data.title !== undefined) updates.title = parsed.data.title;
+    if (parsed.data.content !== undefined) updates.content = parsed.data.content;
+    if (parsed.data.is_active !== undefined) updates.is_active = parsed.data.is_active;
     updates.updated_at = new Date().toISOString();
+
+    // Ré-indexation RAG AVANT la mise à jour du document : l'échec le plus
+    // probable (API embeddings) laisse alors le document ET son index intacts,
+    // au lieu d'un document mis à jour avec des chunks obsolètes.
+    if (parsed.data.content !== undefined) {
+      try {
+        await reindexDocumentContent(supabase, id, parsed.data.content);
+      } catch {
+        return NextResponse.json(
+          { success: false, error: { message: "Erreur de vectorisation du contenu — document non modifié", code: "EMBEDDING_ERROR" } },
+          { status: 500 }
+        );
+      }
+    }
 
     const { data, error } = await supabase
       .from("knowledge_documents")
@@ -63,25 +70,8 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: { message: "Non authentifié", code: "UNAUTHORIZED" } },
-        { status: 401 }
-      );
-    }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        { success: false, error: { message: "Accès interdit", code: "FORBIDDEN" } },
-        { status: 403 }
-      );
-    }
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
 
     // Clean up files from storage before deleting document
     const { data: files } = await supabase

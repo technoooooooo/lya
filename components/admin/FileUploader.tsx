@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -11,6 +11,7 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import type { KnowledgeFile } from "@/types/admin";
 
@@ -25,7 +26,7 @@ interface FileUploaderProps {
 }
 
 const ACCEPTED_TYPES = ".png,.jpg,.jpeg,.pdf";
-const MAX_SIZE_MB = 10;
+const MAX_SIZE_MB = 50;
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`;
@@ -40,6 +41,48 @@ function fileTypeLabel(mimeType: string): string {
   return "Fichier";
 }
 
+// Affiche l'état d'indexation RAG d'un fichier PDF (les images n'ont rien à
+// indexer). Les statuts sont mis à jour en tâche de fond côté serveur.
+function IndexingStatus({ file }: { file: KnowledgeFile }) {
+  if (file.mime_type !== "application/pdf") return null;
+
+  switch (file.indexing_status) {
+    case "pending":
+    case "indexing":
+      return (
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Indexation en cours…
+        </span>
+      );
+    case "done":
+      return (
+        <span className="flex items-center gap-1 text-xs text-green-600">
+          <CheckCircle2 className="h-3 w-3" />
+          {file.chunk_count > 0
+            ? `${file.chunk_count} passage${file.chunk_count > 1 ? "s" : ""} indexé${file.chunk_count > 1 ? "s" : ""}`
+            : "Indexé"}
+        </span>
+      );
+    case "no_text":
+      return (
+        <span className="flex items-center gap-1 text-xs text-amber-600">
+          <AlertTriangle className="h-3 w-3" />
+          Aucun texte détecté (PDF scanné ?) — ignoré par l&apos;IA
+        </span>
+      );
+    case "error":
+      return (
+        <span className="flex items-center gap-1 text-xs text-destructive">
+          <AlertCircle className="h-3 w-3" />
+          Échec de l&apos;indexation
+        </span>
+      );
+    default:
+      return null;
+  }
+}
+
 export default function FileUploader({
   documentId,
   files,
@@ -50,6 +93,30 @@ export default function FileUploader({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Réf. stable vers le callback pour ne pas ré-abonner l'intervalle à chaque rendu.
+  const onFilesChangeRef = useRef(onFilesChange);
+  onFilesChangeRef.current = onFilesChange;
+
+  // Tant qu'un fichier est en cours d'indexation (tâche de fond serveur), on
+  // rafraîchit périodiquement la liste pour refléter le statut final.
+  const hasIndexingInProgress = files.some(
+    (f) => f.indexing_status === "pending" || f.indexing_status === "indexing"
+  );
+
+  useEffect(() => {
+    if (!hasIndexingInProgress) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/admin/knowledge/${documentId}/files`);
+        const json = await res.json();
+        if (json.success) onFilesChangeRef.current(json.data);
+      } catch {
+        // silencieux : on retentera au prochain tick
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [hasIndexingInProgress, documentId]);
 
   const handleUpload = useCallback(
     async (fileList: FileList | null) => {
@@ -213,13 +280,7 @@ export default function FileUploader({
                   <span className="text-xs text-muted-foreground">
                     {formatFileSize(file.file_size)}
                   </span>
-                  {file.mime_type === "application/pdf" &&
-                    file.extracted_text && (
-                      <span className="flex items-center gap-1 text-xs text-green-600">
-                        <CheckCircle2 className="h-3 w-3" />
-                        Texte extrait
-                      </span>
-                    )}
+                  <IndexingStatus file={file} />
                 </div>
               </div>
               <Button

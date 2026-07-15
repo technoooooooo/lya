@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Users, LogOut, ArrowLeft, User, Settings, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, ArrowLeft, User, Sun, Moon, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,6 +44,11 @@ const navItems = [
     label: "Configuration IA",
     href: "/admin/ai",
     icon: LyaIcon,
+  },
+  {
+    label: "Documentation",
+    href: "/admin/documentation",
+    icon: BookOpen,
   },
 ];
 

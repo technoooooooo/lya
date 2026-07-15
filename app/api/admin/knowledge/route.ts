@@ -1,27 +1,12 @@
-import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { reindexDocumentContent } from "@/lib/ai/indexing";
+import { createKnowledgeDocumentSchema } from "@/lib/validations/admin";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: { message: "Non authentifié", code: "UNAUTHORIZED" } },
-        { status: 401 }
-      );
-    }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        { success: false, error: { message: "Accès interdit", code: "FORBIDDEN" } },
-        { status: 403 }
-      );
-    }
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
 
     const { data, error } = await supabase
       .from("knowledge_documents")
@@ -46,45 +31,40 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: { message: "Non authentifié", code: "UNAUTHORIZED" } },
-        { status: 401 }
-      );
-    }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        { success: false, error: { message: "Accès interdit", code: "FORBIDDEN" } },
-        { status: 403 }
-      );
-    }
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
 
     const body = await request.json();
-    const { title, content } = body;
-
-    if (!title) {
+    const parsed = createKnowledgeDocumentSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: { message: "Titre requis", code: "VALIDATION_ERROR" } },
+        { success: false, error: { message: parsed.error.issues[0].message, code: "VALIDATION_ERROR" } },
         { status: 400 }
       );
     }
+    const { title, content } = parsed.data;
 
     const { data, error } = await supabase
       .from("knowledge_documents")
-      .insert({ title, content: content || "", is_active: true })
+      .insert({ title, content, is_active: true })
       .select()
       .single();
 
     if (error) {
       return NextResponse.json(
         { success: false, error: { message: "Erreur création document", code: "DB_ERROR" } },
+        { status: 500 }
+      );
+    }
+
+    // Vectorisation RAG du content. En cas d'échec embedding, rollback du doc
+    // pour ne pas laisser un document non indexé.
+    try {
+      await reindexDocumentContent(supabase, data.id, content);
+    } catch {
+      await supabase.from("knowledge_documents").delete().eq("id", data.id);
+      return NextResponse.json(
+        { success: false, error: { message: "Erreur vectorisation du contenu", code: "EMBEDDING_ERROR" } },
         { status: 500 }
       );
     }

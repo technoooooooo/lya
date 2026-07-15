@@ -53,15 +53,18 @@ Middleware flow: `updateSession()` refreshes cookie → check auth → check adm
 
 The chat flow in `app/api/chat/route.ts`:
 
-1. Auth check → subscription check (`is_active` + `subscription_status === "active"`)
+1. Auth check → subscription check (`is_active` + `subscription_status === "active"`) + rate limit (`CHAT_RATE_LIMIT_PER_HOUR` user messages/hour, default 60; both bypassed in dev)
 2. Zod validation (`lib/validations/chat.ts`)
 3. Input sanitization via `lib/ai/guardrails.ts` (regex-based injection detection, max 4000 chars)
 4. Get or create conversation (auto-titles from first 50 chars of message)
-5. Save user message → fetch last 50 messages as history
-6. Build system prompt via `lib/ai/promptBuilder.ts` (fetches `ai_config`, `knowledge_documents`, `guardrails` from DB, appends pillar-specific `pre_prompt`)
-7. `getAIProvider().stream(messages)` — singleton factory in `lib/ai/provider.ts`
-8. **`stream.tee()`** — one fork returned to client, one fork saves assistant response to DB in background
-9. Returns `Response` with `X-Conversation-Id` header (used by client for new conversations)
+5. In parallel (`Promise.all`): save user message, fetch the 50 **most recent** messages as history (windowed to ~12k chars in `buildMessages`), RAG retrieval, build system prompt
+6. **RAG retrieval** via `lib/ai/retrieval.ts` — embeds the user message (`lib/ai/embeddings.ts`, OpenAI `text-embedding-3-small`) and calls the `match_knowledge_chunks` RPC (pgvector cosine, `security definer`, similarity threshold 0.25) which returns the top relevant `knowledge_chunks` with their document title
+7. Build system prompt via `lib/ai/promptBuilder.ts` (fetches `ai_config.system_prompt` + `guardrails` from DB, appends pillar-specific `pre_prompt`). **The system prompt contains only conversation-stable content**; the RAG passages are injected into the final user message via `buildUserMessage()` so the request prefix stays stable → OpenAI prompt caching applies. Only the raw user message is saved to DB (RAG context is never replayed in history)
+8. `getAIProvider().stream(messages)` — singleton factory in `lib/ai/provider.ts`
+9. **`stream.tee()`** — one fork returned to client, one fork saves assistant response to DB inside `after()` (survives client disconnect)
+10. Returns `Response` with `X-Conversation-Id` header (used by client for new conversations)
+
+Knowledge indexing (extract PDF → chunk → embed → insert `knowledge_chunks`) is centralized in `lib/ai/indexing.ts` — used by the admin knowledge/files routes and `scripts/reindex-knowledge.ts`. Admin API routes use `requireAdmin()` from `lib/auth/requireAdmin.ts` for the auth/role boilerplate.
 
 ### Provider Abstraction
 
@@ -111,7 +114,7 @@ The Stripe webhook uses a service-role admin client to bypass RLS.
 - `conversations` — `user_id`, `title`, `pillar_id`
 - `messages` — `conversation_id`, `role` (user/assistant), `content`
 - `pillars` — 5 coaching pillars with `name`, `description`, `icon`, `pre_prompt`, `display_order`
-- `knowledge_documents` — admin-managed knowledge base content injected into system prompt
+- `knowledge_documents` — admin-managed knowledge base content, indexed into `knowledge_chunks` for RAG (not readable directly by non-admin users since migration 015)
 - `guardrails` — rules (forbidden/exception) injected into system prompt
 - `ai_config` — key-value store for main system prompt and other AI config
 
@@ -153,6 +156,8 @@ Required in `.env.local` (see `.env.example`):
 - `SUPABASE_SERVICE_ROLE_KEY` (server-only, for webhook admin operations)
 - `AI_PROVIDER` (`openai` or `gemini`), `OPENAI_API_KEY`, `GEMINI_API_KEY`
 - `OPENAI_MODEL`, `GEMINI_MODEL` (optional overrides)
+- `EMBEDDING_MODEL` (optional, default `text-embedding-3-small` — RAG embeddings via OpenAI, independent of `AI_PROVIDER`)
+- `CHAT_RATE_LIMIT_PER_HOUR` (optional, default 60 — max user messages per hour per user)
 - `STRIPE_WEBHOOK_SECRET`
 
 ## Planning Documents

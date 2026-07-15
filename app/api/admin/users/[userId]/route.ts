@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function PATCH(
@@ -6,37 +6,8 @@ export async function PATCH(
   { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { message: "Non authentifie", code: "UNAUTHORIZED" },
-        },
-        { status: 401 }
-      );
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { message: "Acces interdit", code: "FORBIDDEN" },
-        },
-        { status: 403 }
-      );
-    }
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
 
     const { userId } = await params;
     const body = await request.json();

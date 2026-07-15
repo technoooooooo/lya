@@ -16,11 +16,23 @@ export interface KnowledgeFile {
   mime_type: "image/png" | "image/jpeg" | "application/pdf";
   file_size: number;
   extracted_text: string | null;
+  indexing_status: "pending" | "indexing" | "done" | "no_text" | "error";
+  indexing_error: string | null;
+  chunk_count: number;
   created_at: string;
 }
 
 export interface KnowledgeDocumentWithFiles extends KnowledgeDocument {
   knowledge_files: KnowledgeFile[];
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  file_id: string;
+  document_id: string;
+  chunk_index: number;
+  content: string;
+  created_at: string;
 }
 
 export interface Guardrail {

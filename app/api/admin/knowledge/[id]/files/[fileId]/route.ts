@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function DELETE(
@@ -7,34 +7,8 @@ export async function DELETE(
 ) {
   try {
     const { id, fileId } = await params;
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { message: "Non authentifié", code: "UNAUTHORIZED" },
-        },
-        { status: 401 }
-      );
-    }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { message: "Accès interdit", code: "FORBIDDEN" },
-        },
-        { status: 403 }
-      );
-    }
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
 
     // Fetch file record to get storage path
     const { data: file, error: fetchError } = await supabase

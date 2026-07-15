@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { updateGuardrailSchema } from "@/lib/validations/admin";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function PUT(
@@ -7,40 +8,23 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
+
+    const body = await request.json();
+    const parsed = updateGuardrailSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: { message: "Non authentifié", code: "UNAUTHORIZED" } },
-        { status: 401 }
-      );
-    }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        { success: false, error: { message: "Accès interdit", code: "FORBIDDEN" } },
-        { status: 403 }
+        { success: false, error: { message: parsed.error.issues[0].message, code: "VALIDATION_ERROR" } },
+        { status: 400 }
       );
     }
 
-    const body = await request.json();
     const updates: Record<string, unknown> = {};
-    if (body.type !== undefined) {
-      if (body.type !== "forbidden" && body.type !== "exception") {
-        return NextResponse.json(
-          { success: false, error: { message: "Type invalide (forbidden ou exception)", code: "VALIDATION_ERROR" } },
-          { status: 400 }
-        );
-      }
-      updates.type = body.type;
-    }
-    if (body.subject !== undefined) updates.subject = body.subject;
-    if (body.description !== undefined) updates.description = body.description;
-    if (body.is_active !== undefined) updates.is_active = body.is_active;
+    if (parsed.data.type !== undefined) updates.type = parsed.data.type;
+    if (parsed.data.subject !== undefined) updates.subject = parsed.data.subject;
+    if (parsed.data.description !== undefined) updates.description = parsed.data.description;
+    if (parsed.data.is_active !== undefined) updates.is_active = parsed.data.is_active;
     updates.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
@@ -72,25 +56,8 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: { message: "Non authentifié", code: "UNAUTHORIZED" } },
-        { status: 401 }
-      );
-    }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        { success: false, error: { message: "Accès interdit", code: "FORBIDDEN" } },
-        { status: 403 }
-      );
-    }
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
 
     const { error } = await supabase
       .from("guardrails")

@@ -1,27 +1,11 @@
-import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { createGuardrailSchema } from "@/lib/validations/admin";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: { message: "Non authentifié", code: "UNAUTHORIZED" } },
-        { status: 401 }
-      );
-    }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        { success: false, error: { message: "Accès interdit", code: "FORBIDDEN" } },
-        { status: 403 }
-      );
-    }
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
 
     const { data, error } = await supabase
       .from("guardrails")
@@ -47,42 +31,18 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: { message: "Non authentifié", code: "UNAUTHORIZED" } },
-        { status: 401 }
-      );
-    }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        { success: false, error: { message: "Accès interdit", code: "FORBIDDEN" } },
-        { status: 403 }
-      );
-    }
+    const { supabase, response } = await requireAdmin();
+    if (response) return response;
 
     const body = await request.json();
-    const { type, subject, description } = body;
-
-    if (!type || !subject) {
+    const parsed = createGuardrailSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: { message: "Type et sujet requis", code: "VALIDATION_ERROR" } },
+        { success: false, error: { message: parsed.error.issues[0].message, code: "VALIDATION_ERROR" } },
         { status: 400 }
       );
     }
-
-    if (type !== "forbidden" && type !== "exception") {
-      return NextResponse.json(
-        { success: false, error: { message: "Type invalide (forbidden ou exception)", code: "VALIDATION_ERROR" } },
-        { status: 400 }
-      );
-    }
+    const { type, subject, description } = parsed.data;
 
     const { data, error } = await supabase
       .from("guardrails")

@@ -1,9 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAIProvider } from "@/lib/ai/provider";
-import { buildSystemPrompt, buildMessages } from "@/lib/ai/promptBuilder";
+import { buildSystemPrompt, buildMessages, buildUserMessage } from "@/lib/ai/promptBuilder";
+import { retrieveRelevantChunks } from "@/lib/ai/retrieval";
 import { sanitizeInput } from "@/lib/ai/guardrails";
 import { sendMessageSchema } from "@/lib/validations/chat";
 import { NextResponse } from "next/server";
+import { after } from "next/server";
+
+// Plafond de messages par utilisateur et par heure — protège contre l'abus
+// (coûts OpenAI non bornés sinon). Configurable via env.
+const RATE_LIMIT_PER_HOUR = parseInt(
+  process.env.CHAT_RATE_LIMIT_PER_HOUR || "60",
+  10
+);
 
 export async function POST(request: Request) {
   try {
@@ -18,14 +27,23 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check subscription status
-    const { data: userProfile } = await supabase
-      .from("profiles")
-      .select("subscription_status, is_active, first_name")
-      .eq("user_id", user.id)
-      .single();
-
     const isDev = process.env.NODE_ENV === "development";
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+    // Profil + compteur de messages récents (rate limit) en parallèle
+    const [{ data: userProfile }, { count: recentMessageCount }] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("subscription_status, is_active, first_name")
+        .eq("user_id", user.id)
+        .single(),
+      supabase
+        .from("messages")
+        .select("id, conversations!inner(user_id)", { count: "exact", head: true })
+        .eq("conversations.user_id", user.id)
+        .eq("role", "user")
+        .gte("created_at", oneHourAgo),
+    ]);
 
     if (!isDev && !userProfile?.is_active) {
       return NextResponse.json(
@@ -38,6 +56,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, error: { message: "Abonnement requis pour utiliser le chat", code: "SUBSCRIPTION_REQUIRED" } },
         { status: 403 }
+      );
+    }
+
+    if (!isDev && (recentMessageCount ?? 0) >= RATE_LIMIT_PER_HOUR) {
+      return NextResponse.json(
+        { success: false, error: { message: "Vous avez envoyé beaucoup de messages en peu de temps. Réessayez dans quelques minutes.", code: "RATE_LIMITED" } },
+        { status: 429 }
       );
     }
 
@@ -63,6 +88,7 @@ export async function POST(request: Request) {
 
     // Get or create conversation
     let convId = conversationId;
+    let convPillarId: string | null = pillarId ?? null;
     if (!convId) {
       const { data: newConv, error: convError } = await supabase
         .from("conversations")
@@ -81,54 +107,72 @@ export async function POST(request: Request) {
         );
       }
       convId = newConv.id;
-    }
-
-    // Save user message
-    await supabase.from("messages").insert({
-      conversation_id: convId,
-      role: "user",
-      content: sanitized,
-    });
-
-    // Get conversation history
-    const { data: history } = await supabase
-      .from("messages")
-      .select("role, content")
-      .eq("conversation_id", convId)
-      .order("created_at", { ascending: true })
-      .limit(50);
-
-    // Build system prompt with pillar context if applicable
-    let pillarPrePrompt: string | undefined;
-    if (pillarId) {
-      const { data: pillar } = await supabase
-        .from("pillars")
-        .select("pre_prompt")
-        .eq("id", pillarId)
-        .single();
-      pillarPrePrompt = pillar?.pre_prompt;
-    } else if (conversationId) {
-      // Check if existing conversation has a pillar
+    } else {
       const { data: conv } = await supabase
         .from("conversations")
         .select("pillar_id")
-        .eq("id", conversationId)
+        .eq("id", convId)
         .single();
-      if (conv?.pillar_id) {
-        const { data: pillar } = await supabase
-          .from("pillars")
-          .select("pre_prompt")
-          .eq("id", conv.pillar_id)
-          .single();
-        pillarPrePrompt = pillar?.pre_prompt;
+
+      if (!conv) {
+        return NextResponse.json(
+          { success: false, error: { message: "Conversation introuvable", code: "NOT_FOUND" } },
+          { status: 404 }
+        );
       }
+      convPillarId = convPillarId ?? conv.pillar_id;
     }
 
-    const systemPrompt = await buildSystemPrompt(pillarPrePrompt, userProfile?.first_name ?? undefined);
+    const fetchPillarPrePrompt = async (): Promise<string | undefined> => {
+      if (!convPillarId) return undefined;
+      const { data: pillar } = await supabase
+        .from("pillars")
+        .select("pre_prompt")
+        .eq("id", convPillarId)
+        .single();
+      return pillar?.pre_prompt ?? undefined;
+    };
+
+    // Insert du message user, historique, RAG et prompt système en parallèle.
+    const [userMsgInsert, historyRes, retrievedChunks, systemPrompt] = await Promise.all([
+      supabase
+        .from("messages")
+        .insert({ conversation_id: convId, role: "user", content: sanitized })
+        .select("id")
+        .single(),
+      supabase
+        .from("messages")
+        .select("id, role, content")
+        .eq("conversation_id", convId)
+        .order("created_at", { ascending: false })
+        .limit(51),
+      retrieveRelevantChunks(sanitized),
+      fetchPillarPrePrompt().then((prePrompt) =>
+        buildSystemPrompt(prePrompt, userProfile?.first_name ?? undefined)
+      ),
+    ]);
+
+    if (userMsgInsert.error || !userMsgInsert.data) {
+      return NextResponse.json(
+        { success: false, error: { message: "Erreur enregistrement du message", code: "DB_ERROR" } },
+        { status: 500 }
+      );
+    }
+    const userMessageId = userMsgInsert.data.id;
+
+    // Les 50 messages les plus récents, en ordre chronologique, sans le message
+    // courant (présent ou non dans le résultat selon la course avec l'insert).
+    const history = (historyRes.data ?? [])
+      .filter((m) => m.id !== userMessageId)
+      .slice(0, 50)
+      .reverse();
+
+    // Le contexte RAG est injecté dans le dernier message user (et non dans le
+    // prompt système) pour garder un préfixe de requête stable → prompt caching.
     const messages = buildMessages(
       systemPrompt,
-      (history || []).slice(0, -1),
-      sanitized
+      history,
+      buildUserMessage(sanitized, retrievedChunks)
     );
 
     // Stream response
@@ -138,27 +182,34 @@ export async function POST(request: Request) {
     // Collect full response for saving
     const [streamForClient, streamForSave] = stream.tee();
 
-    // Save assistant response in background
-    const saveResponse = async () => {
-      const reader = streamForSave.getReader();
-      const decoder = new TextDecoder();
-      let fullResponse = "";
+    // Sauvegarde de la réponse assistant après l'envoi de la réponse.
+    // after() maintient la fonction en vie jusqu'à la fin de la sauvegarde,
+    // même si le client se déconnecte en cours de stream.
+    after(async () => {
+      try {
+        const reader = streamForSave.getReader();
+        const decoder = new TextDecoder();
+        let fullResponse = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fullResponse += decoder.decode(value, { stream: true });
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fullResponse += decoder.decode(value, { stream: true });
+        }
+        fullResponse += decoder.decode();
+
+        if (fullResponse.length > 0) {
+          const { error } = await supabase.from("messages").insert({
+            conversation_id: convId,
+            role: "assistant",
+            content: fullResponse,
+          });
+          if (error) console.error("Assistant message save error:", error.message);
+        }
+      } catch (err) {
+        console.error("Assistant message save error:", err);
       }
-
-      await supabase.from("messages").insert({
-        conversation_id: convId,
-        role: "assistant",
-        content: fullResponse,
-      });
-    };
-
-    // Don't await — let it run in background
-    saveResponse().catch(console.error);
+    });
 
     // Return streaming response with conversation ID in header
     return new Response(streamForClient, {

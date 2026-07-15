@@ -37,10 +37,11 @@ import {
   MoreVertical,
   FileText,
   Paperclip,
-  Power,
   Upload,
   X,
   ImageIcon,
+  Wallet,
+  Calendar,
 } from "lucide-react";
 import type { AIConfig, KnowledgeDocumentWithFiles, Guardrail } from "@/types/admin";
 import FileUploader from "@/components/admin/FileUploader";
@@ -523,7 +524,7 @@ function KnowledgeSection() {
                     const newFiles = Array.from(e.dataTransfer.files).filter(
                       (f) =>
                         ["image/png", "image/jpeg", "application/pdf"].includes(f.type) &&
-                        f.size <= 10 * 1024 * 1024
+                        f.size <= 50 * 1024 * 1024
                     );
                     if (newFiles.length > 0) setPendingFiles((prev) => [...prev, ...newFiles]);
                   }}
@@ -534,7 +535,7 @@ function KnowledgeSection() {
                     Glissez vos fichiers ici ou cliquez pour parcourir
                   </p>
                   <p className="text-xs text-muted-foreground/70">
-                    PNG, JPG ou PDF — max 10 Mo par fichier
+                    PNG, JPG ou PDF — max 50 Mo par fichier
                   </p>
                   <input
                     ref={pendingInputRef}
@@ -546,7 +547,7 @@ function KnowledgeSection() {
                       const newFiles = Array.from(e.target.files ?? []).filter(
                         (f) =>
                           ["image/png", "image/jpeg", "application/pdf"].includes(f.type) &&
-                          f.size <= 10 * 1024 * 1024
+                          f.size <= 50 * 1024 * 1024
                       );
                       if (newFiles.length > 0) setPendingFiles((prev) => [...prev, ...newFiles]);
                       if (pendingInputRef.current) pendingInputRef.current.value = "";
@@ -1029,6 +1030,171 @@ function GuardrailsSection() {
 // Page principale
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Coûts OpenAI (API Costs — coûts réels facturés, agrégés par jour)
+// ---------------------------------------------------------------------------
+
+interface CostsData {
+  currency: string;
+  total: number;
+  periodDays: number;
+  daily: { date: string; amount: number }[];
+  byLineItem: { name: string; amount: number }[];
+}
+
+function CostsSection() {
+  const [data, setData] = useState<CostsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchCosts = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/admin/costs");
+        const json = await res.json();
+        if (json.success) {
+          setData(json.data);
+        } else {
+          setError(json.error?.message ?? "Erreur inconnue");
+        }
+      } catch {
+        setError("Erreur de connexion au serveur");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCosts();
+  }, []);
+
+  const formatAmount = useCallback(
+    (value: number, currency: string) => {
+      try {
+        return new Intl.NumberFormat("fr-FR", {
+          style: "currency",
+          currency: currency.toUpperCase(),
+        }).format(value);
+      } catch {
+        return `${value.toFixed(2)} ${currency.toUpperCase()}`;
+      }
+    },
+    []
+  );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+            <div>
+              <p className="text-destructive font-medium">{error}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Les coûts réels proviennent de l&apos;API OpenAI et nécessitent
+                une clé Admin d&apos;organisation (variable{" "}
+                <code className="text-xs">OPENAI_ADMIN_KEY</code>).
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) return null;
+
+  const currency = data.currency;
+  const maxDaily = Math.max(...data.daily.map((d) => d.amount), 0);
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            Coût total ({data.periodDays} derniers jours)
+          </CardTitle>
+          <CardDescription>
+            Coûts réels facturés par OpenAI, tous modèles confondus. Montants en{" "}
+            {currency.toUpperCase()}, non ventilables par utilisateur.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-4xl font-bold tracking-tight">
+            {formatAmount(data.total, currency)}
+          </p>
+        </CardContent>
+      </Card>
+
+      {data.byLineItem.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Répartition par modèle / poste</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.byLineItem.map((item) => (
+              <div
+                key={item.name}
+                className="flex items-center justify-between text-sm border-b last:border-0 py-2"
+              >
+                <span className="text-muted-foreground">{item.name}</span>
+                <span className="font-medium tabular-nums">
+                  {formatAmount(item.amount, currency)}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            Détail par jour
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          {data.daily.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Aucune donnée de coût sur la période.
+            </p>
+          )}
+          {data.daily.map((d) => (
+            <div key={d.date} className="flex items-center gap-3 text-sm">
+              <span className="w-24 shrink-0 text-muted-foreground tabular-nums">
+                {d.date}
+              </span>
+              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-golf rounded-full"
+                  style={{
+                    width: maxDaily > 0 ? `${(d.amount / maxDaily) * 100}%` : "0%",
+                  }}
+                />
+              </div>
+              <span className="w-20 shrink-0 text-right font-medium tabular-nums">
+                {formatAmount(d.amount, currency)}
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
 export default function AdminAIPage() {
   return (
     <div className="max-w-7xl mx-auto p-8">
@@ -1053,6 +1219,10 @@ export default function AdminAIPage() {
             <Shield className="h-4 w-4" />
             Garde-fous
           </TabsTrigger>
+          <TabsTrigger value="costs" className="gap-1.5">
+            <Wallet className="h-4 w-4" />
+            Coûts
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="prompt">
@@ -1065,6 +1235,10 @@ export default function AdminAIPage() {
 
         <TabsContent value="guardrails">
           <GuardrailsSection />
+        </TabsContent>
+
+        <TabsContent value="costs">
+          <CostsSection />
         </TabsContent>
       </Tabs>
     </div>
