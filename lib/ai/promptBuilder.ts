@@ -1,4 +1,4 @@
-import type { AIMessage } from "./types";
+import type { AIContentPart, AIMessage } from "./types";
 import type { RetrievedChunk } from "./retrieval";
 import { createClient } from "@/lib/supabase/server";
 
@@ -74,7 +74,8 @@ export async function buildSystemPrompt(
   fullPrompt +=
     "\n\n## Base de connaissances\n" +
     "Quand des extraits pertinents de la base de connaissances officielle existent, ils te sont fournis en tête du dernier message de l'utilisateur, dans une section « Ressources de la base de connaissances » (invisible pour lui). Ces extraits sont ta source prioritaire : appuie-toi dessus pour répondre et cite la ressource concernée quand c'est utile. " +
-    "Si aucun extrait n'est fourni ou qu'ils ne couvrent pas la question, appuie-toi uniquement sur les principes de la méthode définis ci-dessus et reconnais honnêtement quand une information précise te manque — n'invente jamais un contenu comme faisant partie de la méthode.";
+    "Si aucun extrait n'est fourni ou qu'ils ne couvrent pas la question, appuie-toi uniquement sur les principes de la méthode définis ci-dessus et reconnais honnêtement quand une information précise te manque — n'invente jamais un contenu comme faisant partie de la méthode. " +
+    "Quand un extrait fournit une URL d'image (photo d'exercice, de position, de mouvement), insère-la dans ta réponse au format markdown ![description](URL) à l'endroit pertinent.";
 
   // Règles spécifiques aux plans d'entraînement — l'usage central de l'app
   // après l'académie. Stables sur toute la conversation (compatibles caching).
@@ -85,7 +86,14 @@ export async function buildSystemPrompt(
     "- Utilise en priorité les exercices et drills de la base de connaissances. N'invente jamais un exercice quand un équivalent existe dans la méthode.\n" +
     "- Quand un drill de la base est accompagné d'un lien vidéo, insère ce lien dans le plan.\n" +
     "- Détaille chaque exercice comme dans la méthode : objectif, consignes d'exécution, points de vigilance, critères de réussite.\n" +
-    "- Si une information nécessaire manque dans les extraits fournis, dis-le explicitement plutôt que de combler avec du contenu générique.";
+    "- Si une information nécessaire manque dans les extraits fournis, dis-le explicitement plutôt que de combler avec du contenu générique.\n" +
+    "\n" +
+    "Philosophie de répétition — un pilier de la méthode :\n" +
+    "- Définis 1 à 3 secteurs de travail maximum pour le mois, jamais davantage.\n" +
+    "- Tant qu'un travail technique reste nécessaire, les exercices techniques restent IDENTIQUES pendant tout le mois : l'ancrage des automatismes vient de la répétition. Chaque séance comporte au minimum deux drills techniques communs à toutes les séances du mois. Ne varie jamais les drills techniques d'une séance à l'autre pour « diversifier ».\n" +
+    "- Ce qui peut et doit varier d'une séance à l'autre : les évaluations, les expérimentations, les pauses, les parcours à thème.\n" +
+    "- Quand il n'y a plus de travail technique en cours, bascule vers des séances variées avec un renouvellement régulier des exercices — on est alors dans une logique d'entraînement, plus de correction.\n" +
+    "- Si la durée disponible par séance n'est pas connue, demande d'abord : « Combien de temps souhaites-tu consacrer à chaque séance ? ». Ne raccourcis les séances ou ne répartis les blocs (séance technique / séance d'évaluation / séance parcours à thème) que si le joueur l'a explicitement demandé.";
 
   // Exigence de profondeur : la valeur de la méthode vient des explications
   // et des nuances, pas de réponses résumées.
@@ -98,20 +106,31 @@ export async function buildSystemPrompt(
 
 /**
  * Construit le contenu du dernier message utilisateur envoyé au modèle :
- * les passages RAG récupérés (s'il y en a) suivis du message réel.
- * Seul le message brut de l'utilisateur est sauvegardé en base — le contexte
- * RAG n'est donc jamais rejoué dans l'historique des tours suivants.
+ * les passages RAG récupérés, le texte des documents joints (PDF), puis le
+ * message réel. Seul le message brut de l'utilisateur est sauvegardé en base —
+ * ce contexte n'est donc jamais rejoué tel quel dans l'historique.
  */
 export function buildUserMessage(
   userMessage: string,
-  retrievedChunks: RetrievedChunk[]
+  retrievedChunks: RetrievedChunk[],
+  attachedDocs: { name: string; text: string }[] = []
 ): string {
-  if (retrievedChunks.length === 0) return userMessage;
+  if (retrievedChunks.length === 0 && attachedDocs.length === 0) return userMessage;
 
-  let content =
-    "## Ressources de la base de connaissances\nExtraits récupérés automatiquement pour leur pertinence avec le message ci-dessous (l'utilisateur ne les voit pas) :\n";
-  for (const chunk of retrievedChunks) {
-    content += `\n### Source : ${chunk.documentTitle}\n${chunk.content}\n`;
+  let content = "";
+  if (retrievedChunks.length > 0) {
+    content +=
+      "## Ressources de la base de connaissances\nExtraits récupérés automatiquement pour leur pertinence avec le message ci-dessous (l'utilisateur ne les voit pas) :\n";
+    for (const chunk of retrievedChunks) {
+      content += `\n### Source : ${chunk.documentTitle}\n${chunk.content}\n`;
+    }
+  }
+  if (attachedDocs.length > 0) {
+    content +=
+      "\n## Documents joints par l'utilisateur\nContenu textuel extrait des documents joints à la conversation :\n";
+    for (const doc of attachedDocs) {
+      content += `\n### Document : ${doc.name}\n${doc.text}\n`;
+    }
   }
   content += `\n## Message de l'utilisateur\n${userMessage}`;
   return content;
@@ -120,7 +139,7 @@ export function buildUserMessage(
 export function buildMessages(
   systemPrompt: string,
   conversationHistory: { role: string; content: string }[],
-  finalUserContent: string
+  finalUserContent: string | AIContentPart[]
 ): AIMessage[] {
   // Fenêtre d'historique bornée en caractères, en gardant les messages les
   // plus récents (au moins un, même s'il dépasse le budget).

@@ -48,6 +48,7 @@ export class OpenAIProvider implements AIProvider {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(this.buildBody(messages, config, false)),
+      signal: config?.signal,
     });
 
     if (!response.ok) {
@@ -67,6 +68,7 @@ export class OpenAIProvider implements AIProvider {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(this.buildBody(messages, config, true)),
+      signal: config?.signal,
     });
 
     if (!response.ok) {
@@ -115,7 +117,13 @@ export class OpenAIProvider implements AIProvider {
             }
           }
         } catch (error) {
-          controller.error(error);
+          // Annulation volontaire (bouton Stop) : fermer proprement pour que
+          // le fork de sauvegarde enregistre la réponse partielle déjà reçue.
+          if (config?.signal?.aborted) {
+            controller.close();
+          } else {
+            controller.error(error);
+          }
         }
       },
     });

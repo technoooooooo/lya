@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
-import { Trash2 } from "lucide-react";
+import { ArrowDown, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -49,11 +49,38 @@ export function ChatInterface({
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentConvId, setCurrentConvId] = useState(conversationId);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showJumpButton, setShowJumpButton] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Tant que l'utilisateur est en bas, on suit la génération ; s'il remonte
+  // pour lire, on arrête de le ramener en bas à chaque nouveau morceau.
+  const pinnedRef = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    if (pinnedRef.current) {
+      scrollRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
+    }
+  }, [messages, streamingContent, isStreaming]);
+
+  const handleScroll = () => {
+    const el = containerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const pinned = distanceFromBottom < 80;
+    pinnedRef.current = pinned;
+    setShowJumpButton(!pinned);
+  };
+
+  const jumpToBottom = () => {
+    pinnedRef.current = true;
+    setShowJumpButton(false);
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
+  };
+
+  const handleStop = () => {
+    abortRef.current?.abort();
+  };
 
   const handleSend = async (message: string) => {
     // Optimistic add user message
@@ -67,6 +94,25 @@ export function ChatInterface({
     setMessages((prev) => [...prev, userMessage]);
     setIsStreaming(true);
     setStreamingContent("");
+    // Un envoi ramène toujours la vue en bas, sur le nouveau message.
+    pinnedRef.current = true;
+    setShowJumpButton(false);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let fullContent = "";
+
+    const pushAssistantMessage = (content: string, convId: string) => {
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(),
+        conversation_id: convId,
+        role: "assistant",
+        content,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      setStreamingContent("");
+    };
 
     try {
       const response = await fetch("/api/chat", {
@@ -77,6 +123,7 @@ export function ChatInterface({
           message,
           pillarId,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -96,7 +143,6 @@ export function ChatInterface({
       // Read stream
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
-      let fullContent = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -106,33 +152,29 @@ export function ChatInterface({
         setStreamingContent(fullContent);
       }
 
-      // Add assistant message
-      const assistantMessage: Message = {
-        id: crypto.randomUUID(),
-        conversation_id: currentConvId || newConvId || "",
-        role: "assistant",
-        content: fullContent,
-        created_at: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      setStreamingContent("");
+      pushAssistantMessage(fullContent, currentConvId || newConvId || "");
     } catch (error) {
-      console.error("Chat error:", error);
-      // Le message de l'API (limite de longueur, abonnement, rate limit…) est
-      // affiché tel quel : un texte générique masquerait la cause réelle.
-      const errorMessage: Message = {
-        id: crypto.randomUUID(),
-        conversation_id: currentConvId || "",
-        role: "assistant",
-        content:
+      if (controller.signal.aborted) {
+        // Stop volontaire : on garde le début de réponse déjà reçu (le serveur
+        // sauvegarde le même partiel de son côté).
+        if (fullContent) {
+          pushAssistantMessage(fullContent, currentConvId || "");
+        } else {
+          setStreamingContent("");
+        }
+      } else {
+        console.error("Chat error:", error);
+        // Le message de l'API (limite de longueur, abonnement, rate limit…) est
+        // affiché tel quel : un texte générique masquerait la cause réelle.
+        pushAssistantMessage(
           error instanceof ChatApiError
             ? error.message
             : "Désolé, une erreur est survenue. Veuillez réessayer.",
-        created_at: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-      setStreamingContent("");
+          currentConvId || ""
+        );
+      }
     } finally {
+      abortRef.current = null;
       setIsStreaming(false);
     }
   };
@@ -204,19 +246,31 @@ export function ChatInterface({
           </Dialog>
         )}
       </div>
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-3xl mx-auto space-y-4">
-          {messages.map((msg) => (
-            <ChatMessage key={msg.id} role={msg.role} content={msg.content} userAvatarUrl={profile?.avatar_url} />
-          ))}
-          {isStreaming && streamingContent && (
-            <ChatMessage role="assistant" content={streamingContent} />
-          )}
-          {isStreaming && !streamingContent && <TypingIndicator />}
-          <div ref={scrollRef} />
+      <div className="relative flex-1 min-h-0">
+        <div ref={containerRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4">
+          <div className="max-w-3xl mx-auto space-y-4">
+            {messages.map((msg) => (
+              <ChatMessage key={msg.id} role={msg.role} content={msg.content} userAvatarUrl={profile?.avatar_url} />
+            ))}
+            {isStreaming && streamingContent && (
+              <ChatMessage role="assistant" content={streamingContent} />
+            )}
+            {isStreaming && !streamingContent && <TypingIndicator />}
+            <div ref={scrollRef} />
+          </div>
         </div>
+        {showJumpButton && (
+          <button
+            onClick={jumpToBottom}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs shadow-md transition-colors hover:bg-muted"
+            aria-label="Revenir en bas de la conversation"
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+            Revenir en bas
+          </button>
+        )}
       </div>
-      <ChatInput onSend={handleSend} isStreaming={isStreaming} />
+      <ChatInput onSend={handleSend} onStop={handleStop} isStreaming={isStreaming} />
     </div>
   );
 }

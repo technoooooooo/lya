@@ -18,7 +18,10 @@ export async function extractPdfText(buffer: Buffer): Promise<string | null> {
     const result = await parser.getText();
     await parser.destroy();
     return result.text;
-  } catch {
+  } catch (err) {
+    // Un échec silencieux ici se manifeste en aval comme « PDF scanné » —
+    // le log distingue un vrai scan d'un problème d'environnement.
+    console.error("extractPdfText error:", err);
     return null;
   }
 }

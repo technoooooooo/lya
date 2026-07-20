@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { stripMarkdownLinks } from "@/lib/chat/attachments";
 import { embedQuery } from "./embeddings";
 
 export interface RetrievedChunk {
@@ -92,11 +93,12 @@ export async function retrieveForMessage(
   message: string,
   history: { role: string; content: string }[]
 ): Promise<RetrievedChunk[]> {
+  // Les URLs de pièces jointes n'apportent que du bruit à l'embedding.
   const recentUserMessages = history
     .filter((m) => m.role === "user")
     .slice(-2)
-    .map((m) => m.content.slice(0, 500));
-  const contextualQuery = [...recentUserMessages, message].join("\n");
+    .map((m) => stripMarkdownLinks(m.content).slice(0, 500));
+  const contextualQuery = [...recentUserMessages, stripMarkdownLinks(message)].join("\n");
 
   const queries = [contextualQuery];
   if (isPlanRequest(message)) {

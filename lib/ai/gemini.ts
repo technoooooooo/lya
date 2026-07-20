@@ -15,17 +15,26 @@ export class GeminiProvider implements AIProvider {
     this.defaultModel = process.env.GEMINI_MODEL || "gemini-2.0-flash";
   }
 
+  // Gemini n'est pas branché en multimodal ici : un contenu en parts est
+  // aplati en texte (les images deviennent une simple mention).
+  private contentToText(content: AIMessage["content"]): string {
+    if (typeof content === "string") return content;
+    return content
+      .map((part) => (part.type === "text" ? part.text : "[image jointe]"))
+      .join("\n");
+  }
+
   private toGeminiMessages(messages: AIMessage[]) {
     const systemInstruction = messages
       .filter((m) => m.role === "system")
-      .map((m) => m.content)
+      .map((m) => this.contentToText(m.content))
       .join("\n");
 
     const contents = messages
       .filter((m) => m.role !== "system")
       .map((m) => ({
         role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
+        parts: [{ text: this.contentToText(m.content) }],
       }));
 
     return { systemInstruction, contents };
@@ -40,6 +49,7 @@ export class GeminiProvider implements AIProvider {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: config?.signal,
         body: JSON.stringify({
           systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
           contents,
@@ -69,6 +79,7 @@ export class GeminiProvider implements AIProvider {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: config?.signal,
         body: JSON.stringify({
           systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
           contents,
@@ -122,7 +133,13 @@ export class GeminiProvider implements AIProvider {
             }
           }
         } catch (error) {
-          controller.error(error);
+          // Annulation volontaire (bouton Stop) : fermer proprement pour que
+          // le fork de sauvegarde enregistre la réponse partielle déjà reçue.
+          if (config?.signal?.aborted) {
+            controller.close();
+          } else {
+            controller.error(error);
+          }
         }
       },
     });
