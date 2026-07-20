@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import { VideoLinkCards } from "./VideoLinkCards";
 import type { MessageRole } from "@/types/chat";
 
 interface ChatMessageProps {
@@ -33,7 +34,39 @@ export function ChatMessage({ role, content, userAvatarUrl }: ChatMessageProps) 
         )}
       >
         {role === "assistant" ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                // Les liens s'ouvrent dans un nouvel onglet pour ne pas quitter
+                // la conversation en cours. Les URLs brutes (autolinks) sont
+                // affichées sous un libellé compact — l'URL YouTube complète
+                // casse la mise en page et la vignette est déjà sous le message.
+                a: ({ href, children }) => {
+                  const isBareUrl = String(children) === href;
+                  let label: React.ReactNode = children;
+                  if (isBareUrl && href) {
+                    try {
+                      const { hostname } = new URL(href);
+                      label = /(^|\.)youtu(\.be|be\.com)$/.test(hostname)
+                        ? "Voir la vidéo"
+                        : hostname;
+                    } catch {
+                      // URL invalide : on garde le texte d'origine
+                    }
+                  }
+                  return (
+                    <a href={href} target="_blank" rel="noopener noreferrer">
+                      {label}
+                    </a>
+                  );
+                },
+              }}
+            >
+              {content}
+            </ReactMarkdown>
+            <VideoLinkCards content={content} />
+          </>
         ) : (
           content
         )}

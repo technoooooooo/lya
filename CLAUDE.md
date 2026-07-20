@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Framework:** Next.js 16 (App Router) + TypeScript strict
 - **Styling:** Tailwind CSS + shadcn/ui (style: "new-york", icons: lucide)
 - **Backend/Auth/DB:** Supabase (PostgreSQL, Auth cookie-based SSR via `@supabase/ssr`, RLS on all tables)
-- **AI:** OpenAI (`gpt-4o`) or Gemini (`gemini-2.0-flash`), swappable via `AI_PROVIDER` env var
+- **AI:** OpenAI (`gpt-5.5`) or Gemini (`gemini-2.0-flash`), swappable via `AI_PROVIDER` env var
 - **Voice:** Whisper API (`whisper-1`, language: `fr`)
 - **Payments:** Stripe (webhook-based with HMAC-SHA256 signature verification)
 - **Hosting:** Vercel
@@ -53,18 +53,18 @@ Middleware flow: `updateSession()` refreshes cookie → check auth → check adm
 
 The chat flow in `app/api/chat/route.ts`:
 
-1. Auth check → subscription check (`is_active` + `subscription_status === "active"`) + rate limit (`CHAT_RATE_LIMIT_PER_HOUR` user messages/hour, default 60; both bypassed in dev)
-2. Zod validation (`lib/validations/chat.ts`)
-3. Input sanitization via `lib/ai/guardrails.ts` (regex-based injection detection, max 4000 chars)
+1. Auth check → subscription check (`is_active` + `subscription_status === "active"`) + rate limit (`CHAT_RATE_LIMIT_PER_HOUR` user messages/hour, default 60; all bypassed in dev **and for admins** — admins test the app without a Stripe subscription)
+2. Zod validation (`lib/validations/chat.ts`, max `MAX_MESSAGE_LENGTH` = 30 000 chars — long pasted training plans are a core use case)
+3. Input sanitization via `lib/ai/guardrails.ts` (regex-based injection detection, deliberately narrow to avoid false positives on pasted documents)
 4. Get or create conversation (auto-titles from first 50 chars of message)
-5. In parallel (`Promise.all`): save user message, fetch the 50 **most recent** messages as history (windowed to ~12k chars in `buildMessages`), RAG retrieval, build system prompt
-6. **RAG retrieval** via `lib/ai/retrieval.ts` — embeds the user message (`lib/ai/embeddings.ts`, OpenAI `text-embedding-3-small`) and calls the `match_knowledge_chunks` RPC (pgvector cosine, `security definer`, similarity threshold 0.25) which returns the top relevant `knowledge_chunks` with their document title
+5. In parallel (`Promise.all`): save user message, fetch the 50 **most recent** messages as history (windowed to ~60k chars in `buildMessages`), build system prompt. RAG retrieval runs **after** (its query is contextualized with the history)
+6. **RAG retrieval** via `retrieveForMessage()` in `lib/ai/retrieval.ts` — embeds the user message prefixed with the last 2 user messages (`lib/ai/embeddings.ts`, OpenAI `text-embedding-3-small`) and calls the `match_knowledge_chunks` RPC (pgvector cosine, `security definer`, similarity threshold 0.25, 8 chunks per query). Training-plan requests (`isPlanRequest()`) trigger extra support queries (plan structure, drills catalog), merged + deduped, capped at 14 chunks. Retrieved titles + similarities are logged with a `[RAG]` prefix
 7. Build system prompt via `lib/ai/promptBuilder.ts` (fetches `ai_config.system_prompt` + `guardrails` from DB, appends pillar-specific `pre_prompt`). **The system prompt contains only conversation-stable content**; the RAG passages are injected into the final user message via `buildUserMessage()` so the request prefix stays stable → OpenAI prompt caching applies. Only the raw user message is saved to DB (RAG context is never replayed in history)
 8. `getAIProvider().stream(messages)` — singleton factory in `lib/ai/provider.ts`
 9. **`stream.tee()`** — one fork returned to client, one fork saves assistant response to DB inside `after()` (survives client disconnect)
 10. Returns `Response` with `X-Conversation-Id` header (used by client for new conversations)
 
-Knowledge indexing (extract PDF → chunk → embed → insert `knowledge_chunks`) is centralized in `lib/ai/indexing.ts` — used by the admin knowledge/files routes and `scripts/reindex-knowledge.ts`. Admin API routes use `requireAdmin()` from `lib/auth/requireAdmin.ts` for the auth/role boilerplate.
+Knowledge indexing (extract PDF → chunk → embed → insert `knowledge_chunks`) is centralized in `lib/ai/indexing.ts` — used by the admin knowledge/files routes and `scripts/reindex-knowledge.ts`. `scripts/audit-knowledge.ts` prints the KB inventory (docs/files/chunks, ai_config, guardrails) and runs test retrievals — use it when tuning RAG. Admin API routes use `requireAdmin()` from `lib/auth/requireAdmin.ts` for the auth/role boilerplate.
 
 ### Provider Abstraction
 
@@ -76,7 +76,7 @@ interface AIProvider {
 }
 ```
 
-- `lib/ai/openai.ts` — Direct fetch to OpenAI API (model: `OPENAI_MODEL` env var or `gpt-4o`)
+- `lib/ai/openai.ts` — Direct fetch to OpenAI API (model: `OPENAI_MODEL` env var or `gpt-5.5`). Uses `max_completion_tokens` (default 8192); `temperature` is only sent to non-reasoning models (gpt-5.x/o-series reject custom values)
 - `lib/ai/gemini.ts` — Direct fetch to Gemini API, converts message format (model: `GEMINI_MODEL` env var or `gemini-2.0-flash`)
 - `lib/ai/provider.ts` — Factory with singleton caching, selected by `AI_PROVIDER` env var
 
@@ -105,6 +105,8 @@ The Stripe webhook uses a service-role admin client to bypass RLS.
 - POST to `/api/chat`, read `X-Conversation-Id` from response header
 - `response.body.getReader()` + `TextDecoder` to incrementally render `streamingContent`
 - Optimistic UI: user message appears immediately before response starts
+
+Assistant messages render YouTube links as clickable thumbnail cards below the message (`components/chat/VideoLinkCards.tsx`): video IDs are extracted from the content, thumbnails come from `img.youtube.com` (no API key), and titles are resolved through `/api/youtube-meta` (server-side oEmbed proxy with in-memory cache — YouTube's oEmbed endpoint has no CORS). Bare YouTube URLs in the text are displayed as a compact "Voir la vidéo" label.
 
 ### Database Schema
 
