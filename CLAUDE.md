@@ -60,9 +60,10 @@ The chat flow in `app/api/chat/route.ts`:
 5. In parallel (`Promise.all`): save user message, fetch the 50 **most recent** messages as history (windowed to ~60k chars in `buildMessages`), build system prompt. RAG retrieval runs **after** (its query is contextualized with the history)
 6. **RAG retrieval** via `retrieveForMessage()` in `lib/ai/retrieval.ts` — embeds the user message prefixed with the last 2 user messages (`lib/ai/embeddings.ts`, OpenAI `text-embedding-3-small`) and calls the `match_knowledge_chunks` RPC (pgvector cosine, `security definer`, similarity threshold 0.25, 8 chunks per query). Training-plan requests (`isPlanRequest()`) trigger extra support queries (plan structure, drills catalog), merged + deduped, capped at 14 chunks. Retrieved titles + similarities are logged with a `[RAG]` prefix
 7. Build system prompt via `lib/ai/promptBuilder.ts` (fetches `ai_config.system_prompt` + `guardrails` from DB, appends pillar-specific `pre_prompt`). **The system prompt contains only conversation-stable content**; the RAG passages are injected into the final user message via `buildUserMessage()` so the request prefix stays stable → OpenAI prompt caching applies. Only the raw user message is saved to DB (RAG context is never replayed in history)
-8. `getAIProvider().stream(messages)` — singleton factory in `lib/ai/provider.ts`
-9. **`stream.tee()`** — one fork returned to client, one fork saves assistant response to DB inside `after()` (survives client disconnect)
-10. Returns `Response` with `X-Conversation-Id` header (used by client for new conversations)
+8. **Attachments** (`lib/chat/attachments.ts`): uploaded files are referenced as markdown at the end of the user message content (single source of truth, no schema change). Images from our `chat-attachments` bucket become multimodal `image_url` parts (gpt-5.5 vision); PDFs get their text extracted at upload time into a `.txt` sidecar, fetched and injected into the model context (current + 2 most recent docs from history). Upload route: `app/api/chat/uploads/route.ts`
+9. `getAIProvider().stream(messages, { signal: request.signal })` — singleton factory in `lib/ai/provider.ts`. The abort signal propagates to the provider fetch so the client Stop button cancels the upstream generation
+10. The response stream accumulates the streamed text as it is sent (NOT `stream.tee()` — on client abort a tee's save branch loses already-emitted chunks) and `after()` saves exactly what the user saw, full or partial, to DB
+11. Returns `Response` with `X-Conversation-Id` header (used by client for new conversations)
 
 Knowledge indexing (extract PDF → chunk → embed → insert `knowledge_chunks`) is centralized in `lib/ai/indexing.ts` — used by the admin knowledge/files routes and `scripts/reindex-knowledge.ts`. `scripts/audit-knowledge.ts` prints the KB inventory (docs/files/chunks, ai_config, guardrails) and runs test retrievals — use it when tuning RAG. Admin API routes use `requireAdmin()` from `lib/auth/requireAdmin.ts` for the auth/role boilerplate.
 
@@ -106,7 +107,11 @@ The Stripe webhook uses a service-role admin client to bypass RLS.
 - `response.body.getReader()` + `TextDecoder` to incrementally render `streamingContent`
 - Optimistic UI: user message appears immediately before response starts
 
-Assistant messages render YouTube links as clickable thumbnail cards below the message (`components/chat/VideoLinkCards.tsx`): video IDs are extracted from the content, thumbnails come from `img.youtube.com` (no API key), and titles are resolved through `/api/youtube-meta` (server-side oEmbed proxy with in-memory cache — YouTube's oEmbed endpoint has no CORS). Bare YouTube URLs in the text are displayed as a compact "Voir la vidéo" label.
+Assistant messages render YouTube links as clickable thumbnail cards below the message (`components/chat/VideoLinkCards.tsx`): video IDs are extracted from the content, thumbnails come from `img.youtube.com` (no API key), and titles are resolved through `/api/youtube-meta` (server-side oEmbed proxy with in-memory cache — YouTube's oEmbed endpoint has no CORS). Bare YouTube URLs in the text are displayed as a compact "Voir la vidéo" label. Markdown images in assistant messages render inline (knowledge-base photos); user-bubble attachments render as thumbnails/file chips via `parseAttachments`.
+
+Chat UX: auto-scroll only sticks while the user is at the bottom (scroll up to read during streaming, "Revenir en bas" floating button); the send button becomes a Stop button during generation (AbortController → partial response kept client-side and saved server-side).
+
+**Gotcha**: `pdf-parse` must stay in `serverExternalPackages` (next.config.ts) — bundled, its text extraction fails silently in production builds (PDF uploads then behave like scanned PDFs).
 
 ### Database Schema
 
