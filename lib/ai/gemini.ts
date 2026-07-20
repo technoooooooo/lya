@@ -2,6 +2,10 @@ import type { AIMessage, AIProvider, AIStreamConfig } from "./types";
 
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
+// Aligné sur le provider OpenAI : les plans d'entraînement complets demandent
+// des réponses bien plus longues que les 2048 tokens historiques.
+const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+
 export class GeminiProvider implements AIProvider {
   private apiKey: string;
   private defaultModel: string;
@@ -41,7 +45,7 @@ export class GeminiProvider implements AIProvider {
           contents,
           generationConfig: {
             temperature: config?.temperature ?? 0.7,
-            maxOutputTokens: config?.maxTokens ?? 2048,
+            maxOutputTokens: config?.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
           },
         }),
       }
@@ -70,7 +74,7 @@ export class GeminiProvider implements AIProvider {
           contents,
           generationConfig: {
             temperature: config?.temperature ?? 0.7,
-            maxOutputTokens: config?.maxTokens ?? 2048,
+            maxOutputTokens: config?.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
           },
         }),
       }

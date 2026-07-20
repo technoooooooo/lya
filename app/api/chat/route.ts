@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAIProvider } from "@/lib/ai/provider";
 import { buildSystemPrompt, buildMessages, buildUserMessage } from "@/lib/ai/promptBuilder";
-import { retrieveRelevantChunks } from "@/lib/ai/retrieval";
+import { retrieveForMessage } from "@/lib/ai/retrieval";
 import { sanitizeInput } from "@/lib/ai/guardrails";
 import { sendMessageSchema } from "@/lib/validations/chat";
 import { NextResponse } from "next/server";
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     const [{ data: userProfile }, { count: recentMessageCount }] = await Promise.all([
       supabase
         .from("profiles")
-        .select("subscription_status, is_active, first_name")
+        .select("subscription_status, is_active, first_name, role")
         .eq("user_id", user.id)
         .single(),
       supabase
@@ -45,21 +45,27 @@ export async function POST(request: Request) {
         .gte("created_at", oneHourAgo),
     ]);
 
-    if (!isDev && !userProfile?.is_active) {
+    // Les admins testent l'app avec leur propre compte (« Vue utilisateur »)
+    // sans passer par Stripe : ils sont exemptés des checks d'abonnement et du
+    // rate limit, comme en dev.
+    const isAdmin = userProfile?.role === "admin";
+    const bypassChecks = isDev || isAdmin;
+
+    if (!bypassChecks && !userProfile?.is_active) {
       return NextResponse.json(
         { success: false, error: { message: "Votre compte est désactivé", code: "ACCOUNT_DISABLED" } },
         { status: 403 }
       );
     }
 
-    if (!isDev && userProfile?.subscription_status !== "active") {
+    if (!bypassChecks && userProfile?.subscription_status !== "active") {
       return NextResponse.json(
         { success: false, error: { message: "Abonnement requis pour utiliser le chat", code: "SUBSCRIPTION_REQUIRED" } },
         { status: 403 }
       );
     }
 
-    if (!isDev && (recentMessageCount ?? 0) >= RATE_LIMIT_PER_HOUR) {
+    if (!bypassChecks && (recentMessageCount ?? 0) >= RATE_LIMIT_PER_HOUR) {
       return NextResponse.json(
         { success: false, error: { message: "Vous avez envoyé beaucoup de messages en peu de temps. Réessayez dans quelques minutes.", code: "RATE_LIMITED" } },
         { status: 429 }
@@ -133,8 +139,9 @@ export async function POST(request: Request) {
       return pillar?.pre_prompt ?? undefined;
     };
 
-    // Insert du message user, historique, RAG et prompt système en parallèle.
-    const [userMsgInsert, historyRes, retrievedChunks, systemPrompt] = await Promise.all([
+    // Insert du message user, historique et prompt système en parallèle. Le
+    // RAG vient après : sa requête est contextualisée avec l'historique.
+    const [userMsgInsert, historyRes, systemPrompt] = await Promise.all([
       supabase
         .from("messages")
         .insert({ conversation_id: convId, role: "user", content: sanitized })
@@ -146,7 +153,6 @@ export async function POST(request: Request) {
         .eq("conversation_id", convId)
         .order("created_at", { ascending: false })
         .limit(51),
-      retrieveRelevantChunks(sanitized),
       fetchPillarPrePrompt().then((prePrompt) =>
         buildSystemPrompt(prePrompt, userProfile?.first_name ?? undefined)
       ),
@@ -166,6 +172,16 @@ export async function POST(request: Request) {
       .filter((m) => m.id !== userMessageId)
       .slice(0, 50)
       .reverse();
+
+    const retrievedChunks = await retrieveForMessage(sanitized, history);
+    // Trace de retrieval (logs Vercel) : indispensable pour diagnostiquer les
+    // réponses « génériques » — on voit ce que le modèle a réellement reçu.
+    console.log(
+      `[RAG] ${retrievedChunks.length} extrait(s) pour « ${sanitized.slice(0, 80)} »` +
+        (retrievedChunks.length > 0
+          ? ` : ${retrievedChunks.map((c) => `${c.documentTitle} (${c.similarity.toFixed(2)})`).join(" | ")}`
+          : "")
+    );
 
     // Le contexte RAG est injecté dans le dernier message user (et non dans le
     // prompt système) pour garder un préfixe de requête stable → prompt caching.

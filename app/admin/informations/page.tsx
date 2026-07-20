@@ -18,7 +18,6 @@ export default function AdminInformationsPage() {
   const { user, profile, isLoading, refreshProfile } = useAuth();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [golfClub, setGolfClub] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -29,7 +28,6 @@ export default function AdminInformationsPage() {
     if (profile) {
       setFirstName(profile.first_name || "");
       setLastName(profile.last_name || "");
-      setGolfClub(profile.golf_club || "");
       setAvatarUrl(profile.avatar_url || "");
     }
   }, [profile]);

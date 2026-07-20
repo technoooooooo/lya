@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChatInterface } from "@/components/chat/ChatInterface";
 import { PillarCard } from "@/components/PillarCard";
@@ -10,7 +9,6 @@ import { ArrowLeft } from "lucide-react";
 import type { Pillar } from "@/types/chat";
 
 export default function HomePage() {
-  const router = useRouter();
   const { profile } = useAuth();
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [loading, setLoading] = useState(true);

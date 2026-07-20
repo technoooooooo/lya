@@ -1,13 +1,23 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Send, Mic, MicOff, Loader2 } from "lucide-react";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
+import { MAX_MESSAGE_LENGTH } from "@/lib/validations/chat";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
   isStreaming: boolean;
+}
+
+// Seuil d'affichage du compteur : inutile de l'afficher sur un message
+// ordinaire, il n'apparaît qu'à l'approche de la limite (long texte collé).
+const COUNTER_THRESHOLD = Math.floor(MAX_MESSAGE_LENGTH * 0.8);
+
+function formatDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
@@ -15,8 +25,13 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
 
-  const { isRecording, startRecording, stopRecording, audioBlob } =
-    useVoiceRecorder();
+  const {
+    isRecording,
+    recordingSeconds,
+    startRecording,
+    stopRecording,
+    audioBlob,
+  } = useVoiceRecorder();
 
   const transcribeAudio = useCallback(
     async (blob: Blob) => {
@@ -24,8 +39,16 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
       setVoiceError(null);
 
       try {
+        // L'extension doit refléter le conteneur réel (Safari/iOS enregistre
+        // en mp4) : Whisper s'appuie dessus pour décoder le fichier.
+        const extension = blob.type.includes("mp4")
+          ? "mp4"
+          : blob.type.includes("ogg")
+            ? "ogg"
+            : "webm";
+
         const formData = new FormData();
-        formData.append("audio", blob, "audio.webm");
+        formData.append("audio", blob, `audio.${extension}`);
 
         const response = await fetch("/api/transcribe", {
           method: "POST",
@@ -79,9 +102,11 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
     }
   };
 
+  const isTooLong = message.length > MAX_MESSAGE_LENGTH;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim() || isStreaming) return;
+    if (!message.trim() || isStreaming || isTooLong) return;
     onSend(message.trim());
     setMessage("");
     if (textareaRef.current) {
@@ -102,7 +127,7 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
 
   useEffect(() => {
     textareaRef.current?.focus();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!isBusy) {
@@ -125,6 +150,23 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
           <p className="text-sm text-destructive px-1">{voiceError}</p>
         )}
         <div className="rounded-2xl border bg-muted/40 p-3">
+          {isRecording && (
+            <div className="flex items-center gap-2 px-1 pb-2 text-sm">
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
+              </span>
+              <span className="font-medium text-destructive">
+                Enregistrement en cours
+              </span>
+              <span className="tabular-nums text-destructive">
+                {formatDuration(recordingSeconds)}
+              </span>
+              <span className="text-muted-foreground hidden sm:inline">
+                — cliquez sur le micro pour terminer
+              </span>
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={message}
@@ -143,7 +185,19 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
             disabled={isBusy}
           />
           <div className="flex items-center justify-between mt-2">
-            <div />
+            <div className="px-1 text-xs">
+              {isTooLong ? (
+                <span className="text-destructive">
+                  Message trop long : {message.length.toLocaleString("fr-FR")} /{" "}
+                  {MAX_MESSAGE_LENGTH.toLocaleString("fr-FR")} caractères
+                </span>
+              ) : message.length >= COUNTER_THRESHOLD ? (
+                <span className="text-muted-foreground tabular-nums">
+                  {message.length.toLocaleString("fr-FR")} /{" "}
+                  {MAX_MESSAGE_LENGTH.toLocaleString("fr-FR")}
+                </span>
+              ) : null}
+            </div>
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -164,7 +218,7 @@ export function ChatInput({ onSend, isStreaming }: ChatInputProps) {
               </button>
               <button
                 type="submit"
-                disabled={!message.trim() || isBusy}
+                disabled={!message.trim() || isBusy || isTooLong}
                 className="p-2 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30"
               >
                 <Send className="h-5 w-5" />

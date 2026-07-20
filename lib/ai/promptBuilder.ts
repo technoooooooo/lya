@@ -3,9 +3,10 @@ import type { RetrievedChunk } from "./retrieval";
 import { createClient } from "@/lib/supabase/server";
 
 // Budget de caractères pour l'historique de conversation envoyé au modèle
-// (~3k tokens). Évite que les longues conversations fassent exploser le coût
-// d'input à chaque message.
-const MAX_HISTORY_CHARS = 12000;
+// (~15k tokens). Doit rester assez large pour qu'un plan d'entraînement collé
+// par l'utilisateur reste en mémoire pendant toute l'itération sur le plan
+// suivant — le prompt caching absorbe l'essentiel du surcoût.
+const MAX_HISTORY_CHARS = 60000;
 
 /**
  * Construit le message système. Il ne contient QUE des éléments stables pour
@@ -74,6 +75,23 @@ export async function buildSystemPrompt(
     "\n\n## Base de connaissances\n" +
     "Quand des extraits pertinents de la base de connaissances officielle existent, ils te sont fournis en tête du dernier message de l'utilisateur, dans une section « Ressources de la base de connaissances » (invisible pour lui). Ces extraits sont ta source prioritaire : appuie-toi dessus pour répondre et cite la ressource concernée quand c'est utile. " +
     "Si aucun extrait n'est fourni ou qu'ils ne couvrent pas la question, appuie-toi uniquement sur les principes de la méthode définis ci-dessus et reconnais honnêtement quand une information précise te manque — n'invente jamais un contenu comme faisant partie de la méthode.";
+
+  // Règles spécifiques aux plans d'entraînement — l'usage central de l'app
+  // après l'académie. Stables sur toute la conversation (compatibles caching).
+  fullPrompt +=
+    "\n\n## Plans d'entraînement\n" +
+    "Quand tu crées ou mets à jour un plan d'entraînement :\n" +
+    "- Reprends exactement la structure des plans de la méthode présents dans la base de connaissances (mêmes rubriques, même organisation des semaines et des séances). Si l'utilisateur fournit son plan précédent, conserve sa structure.\n" +
+    "- Utilise en priorité les exercices et drills de la base de connaissances. N'invente jamais un exercice quand un équivalent existe dans la méthode.\n" +
+    "- Quand un drill de la base est accompagné d'un lien vidéo, insère ce lien dans le plan.\n" +
+    "- Détaille chaque exercice comme dans la méthode : objectif, consignes d'exécution, points de vigilance, critères de réussite.\n" +
+    "- Si une information nécessaire manque dans les extraits fournis, dis-le explicitement plutôt que de combler avec du contenu générique.";
+
+  // Exigence de profondeur : la valeur de la méthode vient des explications
+  // et des nuances, pas de réponses résumées.
+  fullPrompt +=
+    "\n\n## Profondeur des réponses\n" +
+    "Tes réponses doivent refléter la profondeur pédagogique de la méthode : détaillées, structurées et personnalisées, en expliquant le pourquoi de chaque recommandation avec les nuances de la méthode. Développe pleinement ta réponse plutôt que de la résumer — évite les généralités de coaching golf qui pourraient venir de n'importe quel assistant.";
 
   return fullPrompt;
 }

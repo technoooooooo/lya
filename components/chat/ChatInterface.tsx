@@ -21,6 +21,10 @@ import { ChatMessage } from "./ChatMessage";
 import { TypingIndicator } from "./TypingIndicator";
 import type { Message } from "@/types/chat";
 
+// Erreur renvoyée par l'API chat avec un message destiné à l'utilisateur —
+// à distinguer des erreurs techniques (réseau, stream) qu'on ne montre pas.
+class ChatApiError extends Error {}
+
 interface ChatInterfaceProps {
   conversationId?: string;
   pillarId?: string;
@@ -76,8 +80,10 @@ export function ChatInterface({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || "Erreur");
+        const payload = await response.json().catch(() => null);
+        throw new ChatApiError(
+          payload?.error?.message || "Une erreur est survenue côté serveur."
+        );
       }
 
       // Get conversation ID from header (for new conversations)
@@ -112,11 +118,16 @@ export function ChatInterface({
       setStreamingContent("");
     } catch (error) {
       console.error("Chat error:", error);
+      // Le message de l'API (limite de longueur, abonnement, rate limit…) est
+      // affiché tel quel : un texte générique masquerait la cause réelle.
       const errorMessage: Message = {
         id: crypto.randomUUID(),
         conversation_id: currentConvId || "",
         role: "assistant",
-        content: "Désolé, une erreur est survenue. Veuillez réessayer.",
+        content:
+          error instanceof ChatApiError
+            ? error.message
+            : "Désolé, une erreur est survenue. Veuillez réessayer.",
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errorMessage]);

@@ -2,13 +2,42 @@ import type { AIMessage, AIProvider, AIStreamConfig } from "./types";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 
+// Plafond de génération par défaut. Un plan d'entraînement mensuel complet
+// dépasse largement les 2048 tokens historiques — 8192 laisse la place à des
+// réponses longues et structurées sans coupure en plein milieu.
+const DEFAULT_MAX_COMPLETION_TOKENS = 8192;
+
 export class OpenAIProvider implements AIProvider {
   private apiKey: string;
   private defaultModel: string;
 
   constructor() {
     this.apiKey = process.env.OPENAI_API_KEY!;
-    this.defaultModel = process.env.OPENAI_MODEL || "gpt-4o";
+    this.defaultModel = process.env.OPENAI_MODEL || "gpt-5.5";
+  }
+
+  private buildBody(
+    messages: AIMessage[],
+    config: AIStreamConfig | undefined,
+    stream: boolean
+  ): Record<string, unknown> {
+    const model = config?.model || this.defaultModel;
+    const body: Record<string, unknown> = {
+      model,
+      messages,
+      // `max_tokens` est refusé par les modèles gpt-5.x ; son remplaçant
+      // `max_completion_tokens` est accepté par toute la gamme.
+      max_completion_tokens: config?.maxTokens ?? DEFAULT_MAX_COMPLETION_TOKENS,
+    };
+    // Les modèles de raisonnement (gpt-5.x, o-série) n'acceptent que la
+    // température par défaut — l'envoyer provoque une erreur 400.
+    if (!/^(gpt-5|o\d)/.test(model)) {
+      body.temperature = config?.temperature ?? 0.7;
+    }
+    if (stream) {
+      body.stream = true;
+    }
+    return body;
   }
 
   async chat(messages: AIMessage[], config?: AIStreamConfig): Promise<string> {
@@ -18,12 +47,7 @@ export class OpenAIProvider implements AIProvider {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify({
-        model: config?.model || this.defaultModel,
-        messages,
-        temperature: config?.temperature ?? 0.7,
-        max_tokens: config?.maxTokens ?? 2048,
-      }),
+      body: JSON.stringify(this.buildBody(messages, config, false)),
     });
 
     if (!response.ok) {
@@ -42,13 +66,7 @@ export class OpenAIProvider implements AIProvider {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify({
-        model: config?.model || this.defaultModel,
-        messages,
-        temperature: config?.temperature ?? 0.7,
-        max_tokens: config?.maxTokens ?? 2048,
-        stream: true,
-      }),
+      body: JSON.stringify(this.buildBody(messages, config, true)),
     });
 
     if (!response.ok) {

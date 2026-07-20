@@ -67,9 +67,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Build the FormData for the Whisper API
+    // Build the FormData for the Whisper API. Le nom de fichier du client
+    // porte l'extension du conteneur réel (webm, mp4 sur Safari/iOS…) —
+    // Whisper s'appuie dessus pour décoder.
     const whisperFormData = new FormData();
-    whisperFormData.append("file", audioFile, "audio.webm");
+    const fileName =
+      audioFile instanceof File && audioFile.name ? audioFile.name : "audio.webm";
+    whisperFormData.append("file", audioFile, fileName);
     whisperFormData.append("model", "whisper-1");
     whisperFormData.append("language", "fr");
 
