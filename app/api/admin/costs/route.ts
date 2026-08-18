@@ -1,5 +1,6 @@
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { NextResponse } from "next/server";
+import { serverEnv } from "@/lib/env";
 
 // L'API Costs d'OpenAI (/v1/organization/costs) renvoie les coûts reels factures,
 // agreges par jour. Elle exige une cle Admin d'organisation (OPENAI_ADMIN_KEY),
@@ -25,7 +26,7 @@ export async function GET() {
     const { response: authResponse } = await requireAdmin();
     if (authResponse) return authResponse;
 
-    const adminKey = process.env.OPENAI_ADMIN_KEY;
+    const adminKey = serverEnv("OPENAI_ADMIN_KEY");
     if (!adminKey) {
       return NextResponse.json(
         {

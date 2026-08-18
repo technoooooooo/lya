@@ -1,13 +1,14 @@
 import type { AIProvider } from "./types";
 import { OpenAIProvider } from "./openai";
 import { GeminiProvider } from "./gemini";
+import { serverEnv } from "@/lib/env";
 
 let providerInstance: AIProvider | null = null;
 
 export function getAIProvider(): AIProvider {
   if (providerInstance) return providerInstance;
 
-  const providerName = process.env.AI_PROVIDER || "openai";
+  const providerName = serverEnv("AI_PROVIDER") || "openai";
 
   switch (providerName) {
     case "gemini":

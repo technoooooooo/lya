@@ -1,11 +1,12 @@
 import { verifyStripeSignature } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { SUPABASE_URL, serverEnv } from "@/lib/env";
 
 // Supabase admin client (service role) — bypasses RLS for webhook-driven updates
 function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = SUPABASE_URL;
+  const serviceRoleKey = serverEnv("SUPABASE_SERVICE_ROLE_KEY");
 
   if (!url || !serviceRoleKey) {
     throw new Error("Missing Supabase environment variables for admin client");
@@ -75,7 +76,7 @@ async function resolveUserId(
 
 export async function POST(request: Request) {
   try {
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    const webhookSecret = serverEnv("STRIPE_WEBHOOK_SECRET");
     if (!webhookSecret) {
       console.error("STRIPE_WEBHOOK_SECRET is not configured");
       return NextResponse.json(

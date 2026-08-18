@@ -1,6 +1,12 @@
 export type AIContentPart =
   | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
+  // `detail: "high"` force la lecture en pleine résolution : sans lui, les
+  // petits caractères d'une carte de score ou d'une carte de parcours peuvent
+  // être illisibles pour le modèle.
+  | { type: "image_url"; image_url: { url: string; detail?: "low" | "high" | "auto" } }
+  // Document envoyé tel quel au modèle (PDF), en data URL base64. Utilisé pour
+  // les PDF sans texte extractible — le modèle en lit alors les pages.
+  | { type: "file"; file: { filename: string; file_data: string } };
 
 export interface AIMessage {
   role: 'system' | 'user' | 'assistant';

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { serverEnv } from "@/lib/env";
 
 export async function POST(request: Request) {
   try {
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = serverEnv("OPENAI_API_KEY");
     if (!apiKey) {
       console.error("OPENAI_API_KEY is not set");
       return NextResponse.json(

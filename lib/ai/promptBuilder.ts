@@ -95,6 +95,16 @@ export async function buildSystemPrompt(
     "- Quand il n'y a plus de travail technique en cours, bascule vers des séances variées avec un renouvellement régulier des exercices — on est alors dans une logique d'entraînement, plus de correction.\n" +
     "- Si la durée disponible par séance n'est pas connue, demande d'abord : « Combien de temps souhaites-tu consacrer à chaque séance ? ». Ne raccourcis les séances ou ne répartis les blocs (séance technique / séance d'évaluation / séance parcours à thème) que si le joueur l'a explicitement demandé.";
 
+  // Pièces jointes : sans cette section, le modèle applique aux images la même
+  // prudence qu'au contenu hors base de connaissances et demande à
+  // l'utilisateur de recopier à la main ce qu'il a sous les yeux.
+  fullPrompt +=
+    "\n\n## Photos et documents joints\n" +
+    "Quand l'utilisateur joint une photo ou un document (carte de score, carte de parcours, vue d'un trou, position de swing, plan d'entraînement), tu le reçois réellement et tu peux le lire : exploite directement son contenu. " +
+    "Ne demande jamais à l'utilisateur de recopier à la main des informations qui figurent sur la pièce jointe. " +
+    "Si un élément précis est réellement illisible, signale uniquement cet élément-là et poursuis avec le reste. " +
+    "Les informations lues sur une pièce jointe (distances, pars, index, scores) sont des données factuelles de l'utilisateur : les utiliser n'est pas inventer du contenu de la méthode. Ce sont les principes de coaching, eux, qui doivent venir de la méthode.";
+
   // Exigence de profondeur : la valeur de la méthode vient des explications
   // et des nuances, pas de réponses résumées.
   fullPrompt +=

@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAIProvider } from "@/lib/ai/provider";
 import { buildSystemPrompt, buildMessages, buildUserMessage } from "@/lib/ai/promptBuilder";
 import { retrieveForMessage } from "@/lib/ai/retrieval";
-import { parseAttachments } from "@/lib/chat/attachments";
+import { buildAttachmentContext } from "@/lib/chat/attachmentContext";
 import { sanitizeInput } from "@/lib/ai/guardrails";
 import { sendMessageSchema } from "@/lib/validations/chat";
 import { NextResponse } from "next/server";
@@ -184,46 +184,26 @@ export async function POST(request: Request) {
           : "")
     );
 
-    // Pièces jointes : images du message courant → parts multimodales (vision) ;
-    // documents PDF (courant + historique récent) → texte extrait à l'upload
-    // (sidecar .txt), injecté dans le contexte pour les questions de suivi.
-    // Seules les URLs de notre bucket sont acceptées.
-    const storagePrefix = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/chat-attachments/`;
-    const currentAttachments = parseAttachments(sanitized);
-    const imageParts = currentAttachments.images
-      .filter((img) => img.url.startsWith(storagePrefix))
-      .slice(0, 6)
-      .map((img) => ({ type: "image_url" as const, image_url: { url: img.url } }));
-
-    const docRefs = [
-      ...history
-        .filter((m) => m.role === "user")
-        .flatMap((m) => parseAttachments(m.content).docs),
-      ...currentAttachments.docs,
-    ].filter((doc) => doc.url.startsWith(storagePrefix));
-    const uniqueDocs = [...new Map(docRefs.map((d) => [d.url, d])).values()].slice(-2);
-    const attachedDocs = (
-      await Promise.all(
-        uniqueDocs.map(async (doc) => {
-          try {
-            const res = await fetch(`${doc.url}.txt`);
-            if (!res.ok) return null;
-            return { name: doc.name, text: (await res.text()).slice(0, 15000) };
-          } catch {
-            return null;
-          }
-        })
-      )
-    ).filter((doc): doc is { name: string; text: string } => doc !== null);
+    // Pièces jointes (message courant + historique récent) : images en parts
+    // multimodales pleine résolution, PDF en texte extrait ou en document natif.
+    const { parts: attachmentParts, docTexts } = await buildAttachmentContext(
+      sanitized,
+      history
+    );
+    console.log(
+      `[PJ] ${attachmentParts.filter((p) => p.type === "image_url").length} image(s), ` +
+        `${attachmentParts.filter((p) => p.type === "file").length} PDF natif(s), ` +
+        `${docTexts.length} document(s) texte`
+    );
 
     // Le contexte RAG est injecté dans le dernier message user (et non dans le
     // prompt système) pour garder un préfixe de requête stable → prompt caching.
-    const builtUserMessage = buildUserMessage(sanitized, retrievedChunks, attachedDocs);
+    const builtUserMessage = buildUserMessage(sanitized, retrievedChunks, docTexts);
     const messages = buildMessages(
       systemPrompt,
       history,
-      imageParts.length > 0
-        ? [{ type: "text" as const, text: builtUserMessage }, ...imageParts]
+      attachmentParts.length > 0
+        ? [{ type: "text" as const, text: builtUserMessage }, ...attachmentParts]
         : builtUserMessage
     );
 

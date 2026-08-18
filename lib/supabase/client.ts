@@ -1,4 +1,5 @@
 import { createBrowserClient } from "@supabase/ssr";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
 
 // No-op lock to avoid Navigator Lock API hanging in certain environments.
 // Auth verification is handled server-side by the middleware.
@@ -12,8 +13,8 @@ const noopLock = async (
 
 export function createClient() {
   return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY,
     {
       auth: {
         lock: noopLock,

@@ -1,4 +1,5 @@
 import type { AIMessage, AIProvider, AIStreamConfig } from "./types";
+import { serverEnv } from "@/lib/env";
 
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -11,8 +12,8 @@ export class GeminiProvider implements AIProvider {
   private defaultModel: string;
 
   constructor() {
-    this.apiKey = process.env.GEMINI_API_KEY!;
-    this.defaultModel = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+    this.apiKey = serverEnv("GEMINI_API_KEY")!;
+    this.defaultModel = serverEnv("GEMINI_MODEL") || "gemini-2.0-flash";
   }
 
   // Gemini n'est pas branché en multimodal ici : un contenu en parts est
@@ -20,7 +21,11 @@ export class GeminiProvider implements AIProvider {
   private contentToText(content: AIMessage["content"]): string {
     if (typeof content === "string") return content;
     return content
-      .map((part) => (part.type === "text" ? part.text : "[image jointe]"))
+      .map((part) => {
+        if (part.type === "text") return part.text;
+        if (part.type === "file") return `[document joint : ${part.file.filename}]`;
+        return "[image jointe]";
+      })
       .join("\n");
   }
 

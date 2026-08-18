@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { serverEnv } from "@/lib/env";
 
 export async function POST() {
   try {
@@ -33,7 +34,7 @@ export async function POST() {
     const response = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+        Authorization: `Bearer ${serverEnv("STRIPE_SECRET_KEY")}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({

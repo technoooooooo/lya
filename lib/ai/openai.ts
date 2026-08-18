@@ -1,4 +1,5 @@
 import type { AIMessage, AIProvider, AIStreamConfig } from "./types";
+import { serverEnv } from "@/lib/env";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -12,8 +13,8 @@ export class OpenAIProvider implements AIProvider {
   private defaultModel: string;
 
   constructor() {
-    this.apiKey = process.env.OPENAI_API_KEY!;
-    this.defaultModel = process.env.OPENAI_MODEL || "gpt-5.5";
+    this.apiKey = serverEnv("OPENAI_API_KEY")!;
+    this.defaultModel = serverEnv("OPENAI_MODEL") || "gpt-5.5";
   }
 
   private buildBody(

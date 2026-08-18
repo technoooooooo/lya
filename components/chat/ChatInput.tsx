@@ -133,11 +133,6 @@ export function ChatInput({ onSend, onStop, isStreaming }: ChatInputProps) {
         setError(result.error?.message || "Échec de l'envoi du fichier");
         return;
       }
-      if (result.data.kind === "document" && result.data.pdfHasText === false) {
-        setError(
-          `« ${result.data.name} » semble être un PDF scanné : l'IA ne pourra pas lire son texte.`
-        );
-      }
       setAttachments((prev) => [
         ...prev,
         { url: result.data.url, name: result.data.name, kind: result.data.kind },
