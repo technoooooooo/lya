@@ -4,6 +4,11 @@ import { extractPdfText } from "@/lib/ai/indexing";
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { SUPABASE_URL, serverEnv } from "@/lib/env";
+import {
+  detectFormat,
+  FORMAT_META,
+  withFormatExtension,
+} from "@/lib/chat/fileFormat";
 
 // Upload des pièces jointes du chat (photos, PDF) vers le bucket public
 // `chat-attachments`. Le fichier est référencé ensuite en markdown dans le
@@ -18,43 +23,6 @@ import { SUPABASE_URL, serverEnv } from "@/lib/env";
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 Mo
 const MAX_PDF_SIZE = 20 * 1024 * 1024; // 20 Mo
-
-type DetectedFormat = {
-  mime: string;
-  ext: string;
-  kind: "image" | "document";
-};
-
-/** Reconnaît le format d'après la signature binaire du fichier. */
-function detectFormat(buffer: Buffer): DetectedFormat | "heic" | null {
-  const startsWith = (...bytes: number[]) =>
-    bytes.every((b, i) => buffer[i] === b);
-
-  if (startsWith(0x25, 0x50, 0x44, 0x46))
-    return { mime: "application/pdf", ext: "pdf", kind: "document" };
-  if (startsWith(0xff, 0xd8, 0xff))
-    return { mime: "image/jpeg", ext: "jpg", kind: "image" };
-  if (startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))
-    return { mime: "image/png", ext: "png", kind: "image" };
-  if (buffer.subarray(0, 3).toString("ascii") === "GIF")
-    return { mime: "image/gif", ext: "gif", kind: "image" };
-  if (
-    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
-    buffer.subarray(8, 12).toString("ascii") === "WEBP"
-  )
-    return { mime: "image/webp", ext: "webp", kind: "image" };
-
-  // Photos iPhone : conteneur ISO-BMFF (« ftyp ») avec une marque HEIC/HEIF.
-  // Non lisible par le modèle — on le signale explicitement plutôt que de
-  // stocker un fichier inexploitable.
-  if (buffer.subarray(4, 8).toString("ascii") === "ftyp") {
-    const brand = buffer.subarray(8, 12).toString("ascii");
-    if (["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1"].includes(brand))
-      return "heic";
-  }
-
-  return null;
-}
 
 export async function POST(request: Request) {
   try {
@@ -92,9 +60,9 @@ export async function POST(request: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const format = detectFormat(buffer);
+    const detected = detectFormat(buffer);
 
-    if (format === "heic") {
+    if (detected === "heic") {
       return NextResponse.json(
         {
           success: false,
@@ -108,7 +76,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!format) {
+    if (!detected) {
       return NextResponse.json(
         {
           success: false,
@@ -122,6 +90,7 @@ export async function POST(request: Request) {
       );
     }
 
+    const format = FORMAT_META[detected];
     const isImage = format.kind === "image";
     if (isImage && file.size > MAX_IMAGE_SIZE) {
       return NextResponse.json(
@@ -176,10 +145,7 @@ export async function POST(request: Request) {
 
     // Le nom affiché suit le format réellement détecté : un PDF renommé en
     // « .jpg » doit apparaître comme un document dans la conversation.
-    const baseName = file.name.replace(/\.[^.]+$/, "");
-    const displayName = file.name.toLowerCase().endsWith(`.${format.ext}`)
-      ? file.name
-      : `${baseName}.${format.ext}`;
+    const displayName = withFormatExtension(file.name, detected);
 
     return NextResponse.json({
       success: true,

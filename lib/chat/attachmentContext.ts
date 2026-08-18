@@ -1,4 +1,11 @@
 import { parseAttachments, type ParsedAttachment } from "./attachments";
+import {
+  detectFormat,
+  isVisionFormat,
+  withFormatExtension,
+  FORMAT_SNIFF_BYTES,
+  type FileFormat,
+} from "./fileFormat";
 import { SUPABASE_URL } from "@/lib/env";
 import type { AIContentPart } from "@/lib/ai/types";
 
@@ -11,12 +18,22 @@ import type { AIContentPart } from "@/lib/ai/types";
 //   - PDF     → texte extrait à l'upload (sidecar .txt) quand il est
 //     exploitable, sinon le PDF lui-même en part `file` : c'est le seul moyen
 //     de lire une carte de parcours scannée, qui ne contient aucun texte.
+//
+// Le format annoncé par le markdown du message n'est jamais pris pour argent
+// comptant : chaque image est reniflée dans le bucket avant d'être envoyée.
+// Les messages d'avant la détection par signature binaire contiennent des
+// `![…](…)` qui pointent en réalité vers un PDF ou une photo HEIC ; l'API
+// vision répondait alors 400 et TOUTE la conversation devenait inutilisable,
+// message après message, puisque l'historique rejoue les pièces jointes.
 
 const STORAGE_PREFIX = `${SUPABASE_URL}/storage/v1/object/public/chat-attachments/`;
 
 // Images gardées en contexte, message courant inclus. Au-delà, le coût en
 // tokens grimpe pour un intérêt faible — on conserve les plus récentes.
 const MAX_IMAGES = 4;
+// Marge de candidates reniflées : une pièce jointe écartée ou reclassée en PDF
+// ne doit pas amputer le nombre d'images réellement transmises.
+const IMAGE_CANDIDATES = MAX_IMAGES + 2;
 // Documents gardés en contexte (les plus récents de la conversation).
 const MAX_DOCS = 2;
 // En deçà, le texte extrait est considéré comme inexploitable (PDF scanné) et
@@ -31,6 +48,8 @@ export interface AttachmentContext {
   parts: AIContentPart[];
   /** Documents dont le texte a pu être extrait, à injecter dans le prompt. */
   docTexts: { name: string; text: string }[];
+  /** Pièces jointes écartées, pour la trace de logs. */
+  skipped: { name: string; reason: string }[];
 }
 
 /** N'accepte que les fichiers de notre propre bucket. */
@@ -58,18 +77,53 @@ export async function buildAttachmentContext(
     .filter((m) => m.role === "user")
     .map((m) => parseAttachments(m.content));
 
-  const images = dedupeByUrl([
+  const imageCandidates = dedupeByUrl([
     ...previous.flatMap((p) => p.images),
     ...current.images,
   ])
     .filter(fromOurStorage)
-    .slice(-MAX_IMAGES);
+    .slice(-IMAGE_CANDIDATES);
 
-  const docs = dedupeByUrl([...previous.flatMap((p) => p.docs), ...current.docs])
-    .filter(fromOurStorage)
-    .slice(-MAX_DOCS);
+  const declaredDocs = dedupeByUrl([
+    ...previous.flatMap((p) => p.docs),
+    ...current.docs,
+  ]).filter(fromOurStorage);
 
-  const parts: AIContentPart[] = images.map((img) => ({
+  const skipped: { name: string; reason: string }[] = [];
+
+  // Vérification du contenu réel de chaque image avant envoi à l'API vision.
+  const sniffed = await Promise.all(
+    imageCandidates.map(async (img) => ({
+      attachment: img,
+      format: await sniffRemoteFormat(img.url),
+    }))
+  );
+
+  const images: ParsedAttachment[] = [];
+  const reclassifiedDocs: ParsedAttachment[] = [];
+  for (const { attachment, format } of sniffed) {
+    if (isVisionFormat(format)) {
+      images.push(attachment);
+    } else if (format === "pdf") {
+      // Fichier stocké comme image mais qui est un PDF (export de carte de
+      // parcours renommé, upload antérieur à la détection par signature).
+      reclassifiedDocs.push({
+        name: withFormatExtension(attachment.name, "pdf"),
+        url: attachment.url,
+      });
+    } else {
+      skipped.push({
+        name: attachment.name,
+        reason: format === "heic" ? "HEIC illisible" : "format non reconnu",
+      });
+    }
+  }
+
+  const docs = dedupeByUrl([...declaredDocs, ...reclassifiedDocs]).slice(
+    -MAX_DOCS
+  );
+
+  const parts: AIContentPart[] = images.slice(-MAX_IMAGES).map((img) => ({
     type: "image_url" as const,
     image_url: { url: img.url, detail: "high" as const },
   }));
@@ -89,13 +143,30 @@ export async function buildAttachmentContext(
       if (inline) {
         parts.push({
           type: "file",
-          file: { filename: doc.name, file_data: inline },
+          // Nom normalisé en .pdf : l'API refuse un document dont l'extension
+          // contredit le contenu.
+          file: { filename: withFormatExtension(doc.name, "pdf"), file_data: inline },
         });
+      } else {
+        skipped.push({ name: doc.name, reason: "PDF illisible ou trop lourd" });
       }
     })
   );
 
-  return { parts, docTexts };
+  return { parts, docTexts, skipped };
+}
+
+/** Lit les premiers octets du fichier stocké pour en déduire le vrai format. */
+async function sniffRemoteFormat(url: string): Promise<FileFormat | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { Range: `bytes=0-${FORMAT_SNIFF_BYTES - 1}` },
+    });
+    if (!res.ok) return null;
+    return detectFormat(Buffer.from(await res.arrayBuffer()));
+  } catch {
+    return null;
+  }
 }
 
 async function fetchDocText(url: string): Promise<string | null> {

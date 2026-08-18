@@ -186,14 +186,18 @@ export async function POST(request: Request) {
 
     // Pièces jointes (message courant + historique récent) : images en parts
     // multimodales pleine résolution, PDF en texte extrait ou en document natif.
-    const { parts: attachmentParts, docTexts } = await buildAttachmentContext(
-      sanitized,
-      history
-    );
+    const {
+      parts: attachmentParts,
+      docTexts,
+      skipped,
+    } = await buildAttachmentContext(sanitized, history);
     console.log(
       `[PJ] ${attachmentParts.filter((p) => p.type === "image_url").length} image(s), ` +
         `${attachmentParts.filter((p) => p.type === "file").length} PDF natif(s), ` +
-        `${docTexts.length} document(s) texte`
+        `${docTexts.length} document(s) texte` +
+        (skipped.length > 0
+          ? ` | écarté(s) : ${skipped.map((s) => `${s.name} (${s.reason})`).join(", ")}`
+          : "")
     );
 
     // Le contexte RAG est injecté dans le dernier message user (et non dans le
