@@ -4,6 +4,7 @@ import { buildSystemPrompt, buildMessages, buildUserMessage } from "@/lib/ai/pro
 import { retrieveForMessage } from "@/lib/ai/retrieval";
 import { buildAttachmentContext } from "@/lib/chat/attachmentContext";
 import { sanitizeInput } from "@/lib/ai/guardrails";
+import { hasActiveAccess } from "@/lib/billing/access";
 import { sendMessageSchema } from "@/lib/validations/chat";
 import { NextResponse } from "next/server";
 import { after } from "next/server";
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
     const [{ data: userProfile }, { count: recentMessageCount }] = await Promise.all([
       supabase
         .from("profiles")
-        .select("subscription_status, is_active, first_name, role")
+        .select("is_active, first_name, role, access_until, has_lifetime_access, payment_state")
         .eq("user_id", user.id)
         .single(),
       supabase
@@ -59,7 +60,10 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!bypassChecks && userProfile?.subscription_status !== "active") {
+    // L'accès est une date, pas un statut : un abonné résilié conserve son
+    // accès jusqu'à la fin de la période payée, un impayé jusqu'à la fin des
+    // relances Stripe. Voir lib/billing/access.ts.
+    if (!bypassChecks && !hasActiveAccess(userProfile)) {
       return NextResponse.json(
         { success: false, error: { message: "Abonnement requis pour utiliser le chat", code: "SUBSCRIPTION_REQUIRED" } },
         { status: 403 }

@@ -2,6 +2,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { PWAInstallPrompt } from "@/components/shared/PWAInstallPrompt";
 import { AdminViewBanner } from "@/components/shared/AdminViewBanner";
+import { AccessBanner } from "@/components/billing/AccessBanner";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/types/database";
 
@@ -27,6 +28,7 @@ export default async function AppLayout({
     <AuthProvider initialUser={user} initialProfile={profile}>
       <div className="h-screen flex flex-col">
         <AdminViewBanner />
+        <AccessBanner />
         <div className="flex flex-1 min-h-0">
           <ChatSidebar />
           <main className="flex-1 overflow-y-auto">{children}</main>

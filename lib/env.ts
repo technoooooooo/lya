@@ -24,3 +24,18 @@ export const SUPABASE_PUBLISHABLE_KEY =
 export function serverEnv(name: string): string | undefined {
   return process.env[name]?.trim() || undefined;
 }
+
+/**
+ * URL publique du site, pour les retours de paiement Stripe.
+ * VERCEL_URL désigne l'URL du déploiement (lya-a1b2c3.vercel.app) et non le
+ * domaine du client : elle ne sert que de repli en préproduction.
+ */
+export function siteUrl(): string {
+  const configured = serverEnv("NEXT_PUBLIC_SITE_URL");
+  if (configured) return configured.replace(/\/$/, "");
+
+  const vercel = serverEnv("VERCEL_URL");
+  if (vercel) return `https://${vercel}`;
+
+  return "http://localhost:3000";
+}

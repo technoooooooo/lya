@@ -14,7 +14,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { CreditCard, ExternalLink } from "lucide-react";
+import { CreditCard, ExternalLink, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { accessSourceLabel, hasActiveAccess, isPaymentAtRisk } from "@/lib/billing/access";
 
 export default function AccountPage() {
   const { user, profile, isLoading } = useAuth();
@@ -197,12 +199,39 @@ export default function AccountPage() {
             <Badge variant={subscriptionVariant as "default" | "secondary" | "outline"}>
               {subscriptionLabel}
             </Badge>
-            {profile?.subscription_type && (
-              <span className="text-sm text-muted-foreground">
-                ({profile.subscription_type === "promo" ? "Code promo" : "Payant"})
-              </span>
-            )}
+            <span className="text-sm text-muted-foreground">
+              {accessSourceLabel(profile?.access_source)}
+            </span>
           </div>
+
+          {/* La date de fin est la vraie information : elle couvre aussi bien
+              l'abonné résilié qui garde son accès que l'accès offert. */}
+          {profile?.has_lifetime_access ? (
+            <p className="text-sm text-muted-foreground">Accès à vie, sans échéance.</p>
+          ) : (
+            profile?.access_until && (
+              <p className="text-sm text-muted-foreground">
+                Accès ouvert jusqu&apos;au{" "}
+                <span className="font-medium text-foreground">
+                  {new Date(profile.access_until).toLocaleDateString("fr-FR", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </span>
+              </p>
+            )
+          )}
+
+          {isPaymentAtRisk(profile) && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <span>
+                Votre dernier paiement a échoué. Mettez à jour votre moyen de paiement pour
+                éviter la coupure de votre accès.
+              </span>
+            </div>
+          )}
 
           {profile?.stripe_customer_id && (
             <Button
@@ -216,10 +245,13 @@ export default function AccountPage() {
             </Button>
           )}
 
-          {!profile?.stripe_customer_id && profile?.subscription_status !== "active" && (
-            <p className="text-sm text-muted-foreground">
-              Aucun abonnement actif. Contactez votre coach pour obtenir un accès.
-            </p>
+          {!hasActiveAccess(profile) && (
+            <Button asChild className="gap-2">
+              <Link href="/abonnement">
+                <CreditCard className="h-4 w-4" />
+                Voir les offres
+              </Link>
+            </Button>
           )}
         </CardContent>
       </Card>

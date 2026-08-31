@@ -1,260 +1,104 @@
-import { verifyStripeSignature } from "@/lib/stripe";
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { SUPABASE_URL, serverEnv } from "@/lib/env";
-
-// Supabase admin client (service role) — bypasses RLS for webhook-driven updates
-function getSupabaseAdmin() {
-  const url = SUPABASE_URL;
-  const serviceRoleKey = serverEnv("SUPABASE_SERVICE_ROLE_KEY");
-
-  if (!url || !serviceRoleKey) {
-    throw new Error("Missing Supabase environment variables for admin client");
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
-
-// Stripe event type definitions (minimal, no stripe package dependency)
-interface StripeCheckoutSession {
-  id: string;
-  customer: string;
-  customer_email: string | null;
-  client_reference_id: string | null;
-  metadata: Record<string, string>;
-  subscription: string | null;
-}
-
-interface StripeSubscription {
-  id: string;
-  customer: string;
-  status: string;
-  metadata: Record<string, string>;
-}
+import { serverEnv } from "@/lib/env";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import {
+  verifyStripeSignature,
+  retrieveSubscription,
+  checkoutSessionPriceId,
+  retrieveCustomer,
+  subscriptionPeriodEnd,
+  subscriptionPriceId,
+  invoiceSubscriptionId,
+  type StripeCheckoutSession,
+  type StripeSubscription,
+  type StripeInvoice,
+} from "@/lib/stripe";
+import {
+  findOfferByPriceId,
+  resolveUserId,
+  linkStripeCustomer,
+  upsertSubscriptionGrant,
+  markSubscriptionPastDue,
+  closeSubscriptionGrant,
+  createPaymentGrant,
+} from "@/lib/billing/grants";
 
 interface StripeEvent {
   id: string;
   type: string;
-  data: {
-    object: StripeCheckoutSession | StripeSubscription;
-  };
+  data: { object: unknown };
 }
 
+const LOG = "[STRIPE]";
+
 /**
- * Resolve user_id from a Stripe event object.
- * Priority: metadata.user_id > client_reference_id > customer_email lookup
+ * Toujours répondre 200 sur un événement qu'on choisit d'ignorer : un 4xx/5xx
+ * déclenche des relances Stripe pendant trois jours pour rien.
  */
-async function resolveUserId(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-  obj: StripeCheckoutSession | StripeSubscription
-): Promise<string | null> {
-  // 1. Check metadata.user_id
-  if (obj.metadata?.user_id) {
-    return obj.metadata.user_id;
-  }
-
-  // 2. Check client_reference_id (checkout sessions only)
-  if ("client_reference_id" in obj && obj.client_reference_id) {
-    return obj.client_reference_id;
-  }
-
-  // 3. Fallback: lookup by customer_email (checkout sessions only)
-  if ("customer_email" in obj && obj.customer_email) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("user_id")
-      .eq("email", obj.customer_email)
-      .single();
-
-    return profile?.user_id ?? null;
-  }
-
-  return null;
+function acknowledged(reason: string, detail?: Record<string, unknown>) {
+  console.log(`${LOG} ${reason}`, detail ?? "");
+  return NextResponse.json({ success: true, data: { received: true, reason } });
 }
 
 export async function POST(request: Request) {
+  const webhookSecret = serverEnv("STRIPE_WEBHOOK_SECRET");
+  if (!webhookSecret) {
+    console.error(`${LOG} STRIPE_WEBHOOK_SECRET absent`);
+    return NextResponse.json(
+      { success: false, error: { message: "Webhook non configuré", code: "CONFIG_ERROR" } },
+      { status: 500 }
+    );
+  }
+
+  const rawBody = await request.text();
+  const signatureHeader = request.headers.get("stripe-signature");
+
+  if (!signatureHeader) {
+    return NextResponse.json(
+      { success: false, error: { message: "Signature Stripe manquante", code: "MISSING_SIGNATURE" } },
+      { status: 400 }
+    );
+  }
+
+  if (!verifyStripeSignature(rawBody, signatureHeader, webhookSecret)) {
+    return NextResponse.json(
+      { success: false, error: { message: "Signature Stripe invalide", code: "INVALID_SIGNATURE" } },
+      { status: 401 }
+    );
+  }
+
+  const event: StripeEvent = JSON.parse(rawBody);
+  const supabase = getSupabaseAdmin();
+
+  // Idempotence : la clé primaire refuse le second passage d'un même événement.
+  const { error: duplicate } = await supabase
+    .from("stripe_events")
+    .insert({ id: event.id, type: event.type });
+
+  if (duplicate) {
+    if (duplicate.code === "23505") {
+      return acknowledged("événement déjà traité", { id: event.id, type: event.type });
+    }
+    console.error(`${LOG} journalisation impossible`, duplicate);
+  }
+
   try {
-    const webhookSecret = serverEnv("STRIPE_WEBHOOK_SECRET");
-    if (!webhookSecret) {
-      console.error("STRIPE_WEBHOOK_SECRET is not configured");
-      return NextResponse.json(
-        { success: false, error: { message: "Webhook non configure", code: "CONFIG_ERROR" } },
-        { status: 500 }
-      );
-    }
+    await handleEvent(event);
 
-    // Read raw body for signature verification
-    const rawBody = await request.text();
-    const signatureHeader = request.headers.get("stripe-signature");
-
-    if (!signatureHeader) {
-      return NextResponse.json(
-        { success: false, error: { message: "Signature Stripe manquante", code: "MISSING_SIGNATURE" } },
-        { status: 400 }
-      );
-    }
-
-    // Verify webhook signature
-    if (!verifyStripeSignature(rawBody, signatureHeader, webhookSecret)) {
-      return NextResponse.json(
-        { success: false, error: { message: "Signature Stripe invalide", code: "INVALID_SIGNATURE" } },
-        { status: 401 }
-      );
-    }
-
-    // Parse event after signature is verified
-    const event: StripeEvent = JSON.parse(rawBody);
-    const supabase = getSupabaseAdmin();
-
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as StripeCheckoutSession;
-        const userId = await resolveUserId(supabase, session);
-
-        if (!userId) {
-          console.error("checkout.session.completed: could not resolve user_id", {
-            eventId: event.id,
-            customer: session.customer,
-          });
-          // Return 200 to avoid Stripe retries for unresolvable events
-          return NextResponse.json({ success: true, data: { received: true, warning: "user_not_found" } });
-        }
-
-        const { error } = await supabase
-          .from("profiles")
-          .update({
-            subscription_status: "active",
-            subscription_type: "paid",
-            stripe_customer_id: session.customer,
-          })
-          .eq("user_id", userId);
-
-        if (error) {
-          console.error("checkout.session.completed: DB update failed", error);
-          return NextResponse.json(
-            { success: false, error: { message: "Erreur mise a jour profil", code: "DB_ERROR" } },
-            { status: 500 }
-          );
-        }
-
-        console.log(`Subscription activated for user ${userId}`);
-        break;
-      }
-
-      case "customer.subscription.updated": {
-        const subscription = event.data.object as StripeSubscription;
-        const userId = await resolveUserId(supabase, subscription);
-
-        if (!userId) {
-          // Try to find user by stripe_customer_id
-          const customerId = subscription.customer;
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("user_id")
-            .eq("stripe_customer_id", customerId)
-            .single();
-
-          if (!profile?.user_id) {
-            console.error("customer.subscription.updated: could not resolve user_id", {
-              eventId: event.id,
-              customer: customerId,
-            });
-            return NextResponse.json({ success: true, data: { received: true, warning: "user_not_found" } });
-          }
-
-          // Map Stripe subscription status to our status
-          const subscriptionStatus = mapStripeStatus(subscription.status);
-
-          const { error } = await supabase
-            .from("profiles")
-            .update({ subscription_status: subscriptionStatus })
-            .eq("user_id", profile.user_id);
-
-          if (error) {
-            console.error("customer.subscription.updated: DB update failed", error);
-            return NextResponse.json(
-              { success: false, error: { message: "Erreur mise a jour profil", code: "DB_ERROR" } },
-              { status: 500 }
-            );
-          }
-
-          console.log(`Subscription updated for user ${profile.user_id}: ${subscriptionStatus}`);
-          break;
-        }
-
-        // userId resolved directly
-        const subscriptionStatus = mapStripeStatus(subscription.status);
-
-        const { error } = await supabase
-          .from("profiles")
-          .update({
-            subscription_status: subscriptionStatus,
-            stripe_customer_id: subscription.customer,
-          })
-          .eq("user_id", userId);
-
-        if (error) {
-          console.error("customer.subscription.updated: DB update failed", error);
-          return NextResponse.json(
-            { success: false, error: { message: "Erreur mise a jour profil", code: "DB_ERROR" } },
-            { status: 500 }
-          );
-        }
-
-        console.log(`Subscription updated for user ${userId}: ${subscriptionStatus}`);
-        break;
-      }
-
-      case "customer.subscription.deleted": {
-        const subscription = event.data.object as StripeSubscription;
-        let userId = await resolveUserId(supabase, subscription);
-
-        // Fallback: look up by stripe_customer_id
-        if (!userId) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("user_id")
-            .eq("stripe_customer_id", subscription.customer)
-            .single();
-
-          userId = profile?.user_id ?? null;
-        }
-
-        if (!userId) {
-          console.error("customer.subscription.deleted: could not resolve user_id", {
-            eventId: event.id,
-            customer: subscription.customer,
-          });
-          return NextResponse.json({ success: true, data: { received: true, warning: "user_not_found" } });
-        }
-
-        const { error } = await supabase
-          .from("profiles")
-          .update({ subscription_status: "inactive" })
-          .eq("user_id", userId);
-
-        if (error) {
-          console.error("customer.subscription.deleted: DB update failed", error);
-          return NextResponse.json(
-            { success: false, error: { message: "Erreur mise a jour profil", code: "DB_ERROR" } },
-            { status: 500 }
-          );
-        }
-
-        console.log(`Subscription deactivated for user ${userId}`);
-        break;
-      }
-
-      default:
-        // Acknowledge unhandled event types to prevent retries
-        console.log(`Unhandled Stripe event type: ${event.type}`);
-    }
+    await supabase
+      .from("stripe_events")
+      .update({ handled_at: new Date().toISOString() })
+      .eq("id", event.id);
 
     return NextResponse.json({ success: true, data: { received: true } });
   } catch (error) {
-    console.error("Stripe webhook error:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${LOG} échec du traitement — ${event.type} (${event.id}) : ${message}`);
+
+    // L'événement est retiré du journal pour que la relance Stripe puisse
+    // rejouer le traitement — sans quoi l'idempotence figerait l'échec.
+    await supabase.from("stripe_events").delete().eq("id", event.id);
+
     return NextResponse.json(
       { success: false, error: { message: "Erreur traitement webhook", code: "WEBHOOK_ERROR" } },
       { status: 500 }
@@ -262,23 +106,155 @@ export async function POST(request: Request) {
   }
 }
 
-/**
- * Map Stripe subscription status to our internal subscription_status.
- * Stripe statuses: active, past_due, canceled, unpaid, trialing, incomplete, incomplete_expired, paused
- */
-function mapStripeStatus(stripeStatus: string): "active" | "inactive" | "past_due" {
-  switch (stripeStatus) {
-    case "active":
-    case "trialing":
-      return "active";
-    case "past_due":
-      return "past_due";
-    case "canceled":
-    case "unpaid":
-    case "incomplete":
-    case "incomplete_expired":
-    case "paused":
+async function handleEvent(event: StripeEvent) {
+  switch (event.type) {
+    case "checkout.session.completed":
+      return handleCheckoutCompleted(event.data.object as StripeCheckoutSession);
+
+    case "customer.subscription.created":
+    case "customer.subscription.updated":
+      return handleSubscriptionChanged(event.data.object as StripeSubscription);
+
+    case "customer.subscription.deleted":
+      return handleSubscriptionDeleted(event.data.object as StripeSubscription);
+
+    case "invoice.paid":
+      return handleInvoicePaid(event.data.object as StripeInvoice);
+
+    case "invoice.payment_failed":
+      return handleInvoiceFailed(event.data.object as StripeInvoice);
+
     default:
-      return "inactive";
+      console.log(`${LOG} type non traité : ${event.type}`);
   }
+}
+
+async function handleCheckoutCompleted(session: StripeCheckoutSession) {
+  if (session.payment_status !== "paid" && session.mode !== "subscription") {
+    console.log(`${LOG} session non payée, ignorée`, { id: session.id });
+    return;
+  }
+
+  const userId = await resolveUserId({
+    clientReferenceId: session.client_reference_id,
+    metadataUserId: session.metadata?.user_id,
+    stripeCustomerId: session.customer,
+    email: session.customer_details?.email,
+  });
+
+  if (!userId) {
+    console.error(`${LOG} utilisateur introuvable`, {
+      session: session.id,
+      customer: session.customer,
+    });
+    return;
+  }
+
+  await linkStripeCustomer(userId, session.customer);
+
+  // Un abonnement est entièrement piloté par customer.subscription.* : la
+  // session ne sert qu'à rattacher le client Stripe au compte Lya.
+  if (session.mode === "subscription") return;
+
+  const priceId = await checkoutSessionPriceId(session.id);
+  const offer = await findOfferByPriceId(priceId);
+
+  if (!offer) {
+    console.log(`${LOG} price hors catalogue Lya, ignoré`, { session: session.id, priceId });
+    return;
+  }
+
+  await createPaymentGrant({
+    userId,
+    offer,
+    paymentIntentId: session.payment_intent,
+    checkoutSessionId: session.id,
+  });
+
+  console.log(`${LOG} accès accordé — user ${userId}, offre ${offer.internal_name}`);
+}
+
+async function handleSubscriptionChanged(subscription: StripeSubscription) {
+  const offer = await findOfferByPriceId(subscriptionPriceId(subscription));
+
+  if (!offer) {
+    console.log(
+      `${LOG} abonnement hors catalogue Lya, ignoré — ${subscription.id} / ${subscriptionPriceId(subscription)}`
+    );
+    return;
+  }
+
+  // L'ordre de livraison des événements n'est pas garanti :
+  // customer.subscription.created peut précéder la session Checkout qui pose
+  // le stripe_customer_id sur le profil. D'où le repli par l'email du client.
+  let userId = await resolveUserId({
+    metadataUserId: subscription.metadata?.user_id,
+    stripeCustomerId: subscription.customer,
+  });
+
+  if (!userId && subscription.customer) {
+    const customer = await retrieveCustomer(subscription.customer);
+    userId = await resolveUserId({
+      metadataUserId: customer.metadata?.user_id,
+      email: customer.email,
+    });
+    if (userId) await linkStripeCustomer(userId, subscription.customer);
+  }
+
+  if (!userId) {
+    console.error(`${LOG} utilisateur introuvable`, {
+      subscription: subscription.id,
+      customer: subscription.customer,
+    });
+    return;
+  }
+
+  // Un abonnement résilié en fin de période reste 'active' chez Stripe : la
+  // date de fin déjà posée suffit, rien de particulier à traiter ici.
+  const terminal = ["canceled", "incomplete_expired"].includes(subscription.status);
+  if (terminal) {
+    await closeSubscriptionGrant(subscription.id);
+    return;
+  }
+
+  await upsertSubscriptionGrant({
+    userId,
+    offer,
+    subscriptionId: subscription.id,
+    periodEnd: subscriptionPeriodEnd(subscription),
+    pastDue: ["past_due", "unpaid"].includes(subscription.status),
+  });
+
+  console.log(
+    `${LOG} abonnement synchronisé — user ${userId}, statut ${subscription.status}, ` +
+      `fin ${subscriptionPeriodEnd(subscription)?.toISOString() ?? "n/a"}`
+  );
+}
+
+async function handleSubscriptionDeleted(subscription: StripeSubscription) {
+  await closeSubscriptionGrant(subscription.id);
+  console.log(`${LOG} abonnement clos`, { subscription: subscription.id });
+}
+
+async function handleInvoicePaid(invoice: StripeInvoice) {
+  const subscriptionId = invoiceSubscriptionId(invoice);
+  if (!subscriptionId) return;
+
+  // La facture ne porte pas la nouvelle période : on relit l'abonnement.
+  const subscription = await retrieveSubscription(subscriptionId);
+  await handleSubscriptionChanged(subscription);
+}
+
+async function handleInvoiceFailed(invoice: StripeInvoice) {
+  const subscriptionId = invoiceSubscriptionId(invoice);
+  if (!subscriptionId) return;
+
+  const offer = await findOfferByPriceId(invoice.lines?.data?.[0]?.price?.id ?? null);
+  if (!offer) {
+    console.log(`${LOG} impayé hors catalogue Lya, ignoré`, { subscription: subscriptionId });
+    return;
+  }
+
+  await markSubscriptionPastDue(subscriptionId);
+  console.log(`${LOG} impayé : accès maintenu pendant les relances`, { subscription: subscriptionId });
 }

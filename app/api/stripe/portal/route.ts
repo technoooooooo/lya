@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { serverEnv } from "@/lib/env";
+import { serverEnv, siteUrl } from "@/lib/env";
 
 export async function POST() {
   try {
@@ -27,10 +27,6 @@ export async function POST() {
       );
     }
 
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000";
-
     const response = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
       method: "POST",
       headers: {
@@ -39,7 +35,7 @@ export async function POST() {
       },
       body: new URLSearchParams({
         customer: profile.stripe_customer_id,
-        return_url: `${baseUrl}/account`,
+        return_url: `${siteUrl()}/account`,
       }),
     });
 
