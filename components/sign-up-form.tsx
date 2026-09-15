@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { BRAND_NAME } from "@/lib/brand";
 
 export function SignUpForm({
   className,
@@ -105,7 +106,7 @@ export function SignUpForm({
           <circle cx="14" cy="14" r="4" fill="hsl(153 51% 30%)" />
           <path d="M14 10 C14 10, 8 4, 5 7" stroke="hsl(153 51% 30%)" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
         </svg>
-        <h1 className="text-2xl font-semibold tracking-tight">Lya</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{BRAND_NAME}</h1>
         <p className="text-sm text-muted-foreground">Créez votre compte</p>
       </div>
 

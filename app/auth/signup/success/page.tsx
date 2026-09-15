@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Mail } from "lucide-react";
+import { BRAND_NAME } from "@/lib/brand";
 
 export default function Page() {
   return (
@@ -21,7 +22,7 @@ export default function Page() {
               <circle cx="14" cy="14" r="4" fill="hsl(var(--golf))" />
               <path d="M14 10 C14 10, 8 4, 5 7" stroke="hsl(var(--golf))" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
             </svg>
-            <h1 className="text-2xl font-semibold tracking-tight">Lya</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{BRAND_NAME}</h1>
           </div>
 
           {/* Card */}

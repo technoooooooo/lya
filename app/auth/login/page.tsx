@@ -10,9 +10,9 @@ export default function Page() {
       </div>
       <div className="hidden lg:block lg:flex-1 relative">
         <img
-          src="/images/golf-hero.png"
+          src="/images/golf-hero.jpg"
           alt=""
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full object-cover object-[40%_center]"
         />
       </div>
     </div>

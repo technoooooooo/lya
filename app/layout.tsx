@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
+import { BRAND_NAME, BRAND_SHORT } from "@/lib/brand";
 
 const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -9,7 +10,7 @@ const defaultUrl = process.env.VERCEL_URL
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
-  title: "Lya — Coach Golf IA",
+  title: BRAND_NAME,
   description: "Assistant IA dédié au coaching golf, prolongement numérique de la méthode de Mathieu.",
 };
 
@@ -31,7 +32,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#09090b" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Lya" />
+        <meta name="apple-mobile-web-app-title" content={BRAND_SHORT} />
         <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
       </head>
       <body className={`${geistSans.className} antialiased`}>

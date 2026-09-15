@@ -37,9 +37,9 @@ export default function InstallPage() {
   return (
     <div className="max-w-2xl mx-auto p-8 space-y-6">
       <div className="space-y-2">
-        <h2 className="text-2xl font-bold">Installer Lya</h2>
+        <h2 className="text-2xl font-bold">Installer TGA</h2>
         <p className="text-muted-foreground">
-          Installez Lya sur votre appareil pour y acceder rapidement, comme une
+          Installez TGA sur votre appareil pour y acceder rapidement, comme une
           application native.
         </p>
       </div>
@@ -129,7 +129,7 @@ export default function InstallPage() {
                 <p className="font-medium">Confirmez l&apos;ajout</p>
                 <p className="text-sm text-muted-foreground">
                   Appuyez sur &laquo; Ajouter &raquo; en haut a droite.
-                  L&apos;icone Lya apparaitra sur votre ecran d&apos;accueil.
+                  L&apos;icone TGA apparaitra sur votre ecran d&apos;accueil.
                 </p>
               </div>
             </li>
@@ -203,7 +203,7 @@ export default function InstallPage() {
                 <p className="font-medium">Confirmez l&apos;installation</p>
                 <p className="text-sm text-muted-foreground">
                   Appuyez sur &laquo; Installer &raquo; dans la boite de
-                  dialogue. L&apos;icone Lya apparaitra sur votre ecran
+                  dialogue. L&apos;icone TGA apparaitra sur votre ecran
                   d&apos;accueil.
                 </p>
               </div>
@@ -227,7 +227,7 @@ export default function InstallPage() {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Sur ordinateur, vous pouvez aussi installer Lya. Dans Chrome ou
+            Sur ordinateur, vous pouvez aussi installer TGA. Dans Chrome ou
             Edge, cliquez sur l&apos;icone d&apos;installation dans la barre
             d&apos;adresse (a droite de l&apos;URL), puis confirmez
             l&apos;installation.

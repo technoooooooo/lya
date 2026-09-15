@@ -58,7 +58,7 @@ export function PWAInstallPrompt() {
       <div className="flex items-center gap-3 rounded-lg border bg-background p-4 shadow-lg">
         <Download className="h-5 w-5 shrink-0 text-primary" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium">Installer Lya</p>
+          <p className="text-sm font-medium">Installer TGA</p>
           <p className="text-xs text-muted-foreground">
             Accédez rapidement depuis votre écran d&apos;accueil
           </p>

@@ -41,7 +41,7 @@ export function PaymentConfirmation() {
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight">Merci, votre accès est ouvert</h1>
           <p className="text-muted-foreground">
-            Vous pouvez commencer à échanger avec Lya dès maintenant.
+            Vous pouvez commencer à échanger avec votre coach IA dès maintenant.
           </p>
         </div>
         <Button asChild size="lg">

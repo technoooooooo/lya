@@ -31,7 +31,7 @@ export default async function AbonnementPage() {
     <div className="mx-auto w-full max-w-4xl px-4 py-10 space-y-8">
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">
-          {subscribed ? "Votre accès à Lya" : "Accéder à Lya"}
+          {subscribed ? "Votre accès à TGA" : "Accéder à TGA"}
         </h1>
         <p className="text-muted-foreground">
           {subscribed

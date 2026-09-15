@@ -6,6 +6,7 @@ import { LayoutDashboard, Users, LogOut, ArrowLeft, User, Sun, Moon, BookOpen } 
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
+import { BRAND_SHORT } from "@/lib/brand";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,7 +75,7 @@ export function AdminSidebar() {
           <circle cx="14" cy="14" r="4" fill="currentColor" className="text-foreground/70" />
           <path d="M14 10 C14 10, 8 4, 5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-foreground/40" />
         </svg>
-        <span className="text-lg font-semibold tracking-tight text-foreground/90">Lya</span>
+        <span className="text-lg font-semibold tracking-tight text-foreground/90">{BRAND_SHORT}</span>
         <span className="text-xs bg-golf text-golf-foreground px-2 py-0.5 rounded-full font-medium">
           Admin
         </span>

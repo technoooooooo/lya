@@ -55,7 +55,7 @@ export function AccessBanner() {
       <div className="flex items-center justify-between gap-3 bg-muted px-4 py-2 text-sm">
         <div className="flex items-center gap-2">
           <Lock className="h-4 w-4 shrink-0" />
-          <span>Votre accès à Lya n&apos;est pas actif.</span>
+          <span>Votre accès à TGA n&apos;est pas actif.</span>
         </div>
         <Link
           href="/abonnement"
