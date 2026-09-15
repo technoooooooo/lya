@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { serverEnv, siteUrl } from "@/lib/env";
+import { findUsableCustomer } from "@/lib/stripe/customer";
 
 export async function POST() {
   try {
@@ -20,7 +21,11 @@ export async function POST() {
       .eq("user_id", user.id)
       .single();
 
-    if (!profile?.stripe_customer_id) {
+    // Un client mémorisé en mode test n'existe pas en live : même réponse
+    // qu'en l'absence de client, plutôt qu'une erreur Stripe opaque.
+    const customer = await findUsableCustomer(profile?.stripe_customer_id ?? null);
+
+    if (!customer) {
       return NextResponse.json(
         { success: false, error: { message: "Aucun abonnement Stripe trouvé", code: "NO_CUSTOMER" } },
         { status: 404 }
@@ -34,7 +39,7 @@ export async function POST() {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
-        customer: profile.stripe_customer_id,
+        customer: customer.id,
         return_url: `${siteUrl()}/account`,
       }),
     });

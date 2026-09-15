@@ -2,12 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { siteUrl } from "@/lib/env";
 import { stripeApi } from "@/lib/stripe";
+import { ensureStripeCustomer } from "@/lib/stripe/customer";
 import { isOfferOnSale, checkEligibility } from "@/lib/billing/offers";
 import type { Offer } from "@/types/database";
-
-interface StripeCustomer {
-  id: string;
-}
 
 function error(message: string, code: string, status: number) {
   return NextResponse.json({ success: false, error: { message, code } }, { status });
@@ -65,22 +62,12 @@ export async function POST(request: Request) {
       .eq("user_id", user.id)
       .single();
 
-    // Le client Stripe porte l'user_id : c'est ce qui permet au webhook de
-    // rattacher un renouvellement des mois plus tard.
-    let customerId = profile?.stripe_customer_id ?? null;
-    if (!customerId) {
-      const customer = await stripeApi.post<StripeCustomer>("/customers", {
-        email: user.email,
-        name: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || undefined,
-        metadata: { user_id: user.id },
-      });
-      customerId = customer.id;
-
-      await supabase
-        .from("profiles")
-        .update({ stripe_customer_id: customerId })
-        .eq("user_id", user.id);
-    }
+    const customerId = await ensureStripeCustomer(supabase, {
+      userId: user.id,
+      email: user.email,
+      name: [profile?.first_name, profile?.last_name].filter(Boolean).join(" "),
+      storedCustomerId: profile?.stripe_customer_id ?? null,
+    });
 
     const base = siteUrl();
     const isSubscription = offer.mode === "subscription";
@@ -111,7 +98,15 @@ export async function POST(request: Request) {
             }),
       },
       // Rejouer la requête (double-clic, retry réseau) ne crée pas deux sessions.
-      { idempotencyKey: `checkout:${user.id}:${offer.id}:${offer.stripe_price_id}` }
+      // La clé est fenêtrée à la minute : Stripe conserve 24 h la réponse d'une
+      // clé, erreur comprise — sans fenêtre, un premier essai en échec (client
+      // Stripe introuvable, prix indisponible) rejouerait la même erreur toute
+      // la journée alors que la cause est corrigée.
+      {
+        idempotencyKey:
+          `checkout:${user.id}:${offer.id}:${offer.stripe_price_id}:` +
+          `${Math.floor(Date.now() / 60_000)}`,
+      }
     );
 
     return NextResponse.json({ success: true, data: { url: session.url } });
