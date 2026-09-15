@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Mail } from "lucide-react";
 import { BRAND_NAME } from "@/lib/brand";
+import { BrandLogo } from "@/components/shared/BrandLogo";
 
 export default function Page() {
   return (
@@ -10,19 +11,8 @@ export default function Page() {
         <div className="w-full max-w-sm">
           {/* Logo */}
           <div className="mb-8 flex flex-col items-center gap-2 text-center">
-            <svg
-              className="mb-1"
-              width="48"
-              height="48"
-              viewBox="0 0 28 28"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle cx="14" cy="14" r="13" stroke="hsl(var(--golf))" strokeWidth="1.5" />
-              <circle cx="14" cy="14" r="4" fill="hsl(var(--golf))" />
-              <path d="M14 10 C14 10, 8 4, 5 7" stroke="hsl(var(--golf))" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
-            </svg>
-            <h1 className="text-2xl font-semibold tracking-tight">{BRAND_NAME}</h1>
+            <BrandLogo size={96} className="rounded-2xl shadow-sm" />
+            <h1 className="sr-only">{BRAND_NAME}</h1>
           </div>
 
           {/* Card */}

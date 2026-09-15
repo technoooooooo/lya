@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
 import { BRAND_SHORT } from "@/lib/brand";
+import { BrandLogo } from "@/components/shared/BrandLogo";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,18 +64,7 @@ export function AdminSidebar() {
     <aside className="w-64 border-r bg-muted/30 flex flex-col h-full">
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-4 pt-4 pb-6">
-        <svg
-          width="28"
-          height="28"
-          viewBox="0 0 28 28"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className="shrink-0"
-        >
-          <circle cx="14" cy="14" r="13" stroke="currentColor" strokeWidth="1.5" className="text-foreground/70" />
-          <circle cx="14" cy="14" r="4" fill="currentColor" className="text-foreground/70" />
-          <path d="M14 10 C14 10, 8 4, 5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-foreground/40" />
-        </svg>
+        <BrandLogo size={28} />
         <span className="text-lg font-semibold tracking-tight text-foreground/90">{BRAND_SHORT}</span>
         <span className="text-xs bg-golf text-golf-foreground px-2 py-0.5 rounded-full font-medium">
           Admin
