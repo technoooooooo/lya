@@ -102,7 +102,9 @@ export default function AdminInformationsPage() {
           first_name: firstName.trim() || null,
           last_name: lastName.trim() || null,
         })
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .select("user_id")
+        .single();
 
       if (error) throw error;
 

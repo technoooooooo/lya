@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CreditCard, ExternalLink, AlertTriangle } from "lucide-react";
@@ -167,10 +168,10 @@ export default function AccountPage() {
           <form onSubmit={handleUpdatePassword} className="space-y-4">
             <div className="grid gap-2">
               <Label htmlFor="new-password">Nouveau mot de passe</Label>
-              <Input
+              <PasswordInput
                 id="new-password"
-                type="password"
                 required
+                autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
               />

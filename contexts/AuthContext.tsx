@@ -69,37 +69,51 @@ export function AuthProvider({ children, initialUser = null, initialProfile = nu
   useEffect(() => {
     const supabase = getSupabase();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        const currentUser = session?.user ?? null;
-
-        if (event === "SIGNED_OUT") {
-          setUser(null);
-          setProfile(null);
-          setIsLoading(false);
-        } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-          setUser(currentUser);
-          if (currentUser) {
-            await fetchProfile(currentUser.id);
-          }
-          setIsLoading(false);
-        } else if (event === "INITIAL_SESSION") {
-          // If we already have server-side data, just sync the user object
-          // and skip the client-side profile fetch (avoids RLS timing issues)
-          if (initialProfile && currentUser) {
-            setUser(currentUser);
-          } else if (currentUser) {
-            setUser(currentUser);
-            await fetchProfile(currentUser.id);
-          }
-          setIsLoading(false);
-        }
+    // Ne JAMAIS appeler Supabase (ni await quoi que ce soit) dans ce callback :
+    // supabase-js l'exécute à l'intérieur du verrou de session, et une requête
+    // imbriquée (getSession, .from()…) attend ce même verrou → interblocage.
+    // Le verrou n'est alors jamais rendu et TOUT appel auth ultérieur reste
+    // suspendu (updateUser, sauvegarde du profil…). C'est ce qui se produisait
+    // au TOKEN_REFRESHED : l'élève changeait son mot de passe et « ça moulinait ».
+    // On se contente de synchroniser l'utilisateur ; le profil est chargé par
+    // l'effet ci-dessous, hors du verrou.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setProfile(null);
+        setIsLoading(false);
+        return;
       }
-    );
+
+      if (
+        event === "INITIAL_SESSION" ||
+        event === "SIGNED_IN" ||
+        event === "TOKEN_REFRESHED" ||
+        event === "USER_UPDATED"
+      ) {
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
+        if (!currentUser) setIsLoading(false);
+      }
+    });
 
     return () => subscription.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Chargement du profil, uniquement quand l'utilisateur change (pas à chaque
+  // rafraîchissement de token : un refetch remettrait à zéro les formulaires
+  // en cours de saisie). Le profil fourni par le serveur évite le fetch initial.
+  const profileLoadedForRef = useRef<string | null>(initialProfile?.user_id ?? null);
+  useEffect(() => {
+    if (!user) return;
+    if (profileLoadedForRef.current === user.id) {
+      setIsLoading(false);
+      return;
+    }
+    profileLoadedForRef.current = user.id;
+    fetchProfile(user.id).finally(() => setIsLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const isAdmin = profile?.role === "admin";
   const isSubscribed = profile?.subscription_status === "active";

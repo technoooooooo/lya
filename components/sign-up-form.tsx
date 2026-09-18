@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -142,20 +143,20 @@ export function SignUpForm({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="password">Mot de passe</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 required
+                autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="repeat-password">Confirmer le mot de passe</Label>
-              <Input
+              <PasswordInput
                 id="repeat-password"
-                type="password"
                 required
+                autoComplete="new-password"
                 value={repeatPassword}
                 onChange={(e) => setRepeatPassword(e.target.value)}
               />

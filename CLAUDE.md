@@ -98,7 +98,7 @@ The Stripe webhook uses a service-role admin client to bypass RLS.
 - `isAdmin` (computed: `profile.role === 'admin'`)
 - `isSubscribed` (computed: `profile.subscription_status === 'active'`)
 - `refreshProfile()` — re-fetches profile from DB
-- Subscribes to `onAuthStateChange()` for real-time session updates
+- Subscribes to `onAuthStateChange()` for real-time session updates. **The callback must stay synchronous and never call Supabase**: supabase-js runs it inside its session lock, so an awaited `getSession()`/query inside it deadlocks the client — the lock is never released and every later auth call (`updateUser`, profile save…) hangs forever. This is what happened after each `TOKEN_REFRESHED`: students changing their password saw the button spin indefinitely. The profile is fetched by a separate effect keyed on `user.id`
 
 ### Streaming on the Client
 

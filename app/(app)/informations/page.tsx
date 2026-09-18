@@ -108,7 +108,9 @@ export default function InformationsPage() {
           last_name: lastName.trim() || null,
           golf_club: golfClub.trim() || null,
         })
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .select("user_id")
+        .single();
 
       if (error) throw error;
 
