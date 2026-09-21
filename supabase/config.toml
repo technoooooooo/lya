@@ -5,3 +5,9 @@ port = 54321
 
 [db]
 port = 54322
+
+# Modèles d'email (dev local ; en prod, coller le HTML dans le dashboard
+# Authentication → Email Templates — voir supabase/templates/README.md)
+[auth.email.template.recovery]
+subject = "Réinitialisation de votre mot de passe – TGA"
+content_path = "./supabase/templates/recovery.html"

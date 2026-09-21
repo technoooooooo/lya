@@ -64,7 +64,7 @@ export function SignUpForm({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/`,
           data: {
             first_name: firstName.trim(),
             last_name: lastName.trim(),

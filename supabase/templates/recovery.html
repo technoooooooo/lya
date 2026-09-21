@@ -1,0 +1,107 @@
+<!-- Modèle Supabase « Reset password » (Authentication → Email Templates).
+     Variables Go template : .SiteURL, .TokenHash, .Data (métadonnées utilisateur).
+     Le lien pointe sur /auth/callback (session posée côté serveur, fonctionne
+     quel que soit le navigateur qui ouvre l'email). Styles inline : Gmail/Outlook. -->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Réinitialisation de votre mot de passe</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f6f4ef;">
+  <!-- Préheader (aperçu dans la boîte de réception, invisible dans le mail) -->
+  <div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f6f4ef;">
+    Choisissez un nouveau mot de passe pour votre espace TGA.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f6f4ef;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+
+          <!-- En-tête : logo sur fond vert -->
+          <tr>
+            <td align="center" style="background-color:#0d3e2f;border-radius:12px 12px 0 0;padding:24px 24px 20px;">
+              <img src="{{ .SiteURL }}/images/logo-tga.png" width="120" height="120" alt="TGA – Ton Golf Authentique"
+                   style="display:block;width:120px;height:120px;border:0;">
+            </td>
+          </tr>
+          <!-- Filet doré (rappel du logo) -->
+          <tr>
+            <td style="background-color:#c7a35c;height:3px;line-height:3px;font-size:3px;">&nbsp;</td>
+          </tr>
+
+          <!-- Corps -->
+          <tr>
+            <td style="background-color:#ffffff;padding:36px 36px 32px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#2a2623;">
+              <p style="margin:0 0 8px;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#c7a35c;font-weight:600;">
+                Mot de passe oublié
+              </p>
+              <h1 style="margin:0 0 20px;font-size:24px;line-height:32px;font-weight:600;color:#0d3e2f;">
+                On repart sur de bonnes bases
+              </h1>
+              <p style="margin:0 0 16px;font-size:16px;line-height:26px;">
+                {{ if .Data.first_name }}Bonjour {{ .Data.first_name }},{{ else }}Bonjour,{{ end }}
+              </p>
+              <p style="margin:0 0 28px;font-size:16px;line-height:26px;">
+                Vous avez demandé à réinitialiser le mot de passe de votre espace
+                <strong style="color:#0d3e2f;">TGA – Ton Golf Authentique</strong>.
+                Cliquez sur le bouton ci-dessous pour en choisir un nouveau.
+              </p>
+
+              <!-- Bouton -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px;">
+                <tr>
+                  <td align="center" style="background-color:#0d3e2f;border-radius:8px;">
+                    <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/auth/update-password"
+                       style="display:inline-block;padding:14px 32px;font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">
+                      Choisir un nouveau mot de passe
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 8px;font-size:14px;line-height:22px;color:#6b655d;">
+                Ce lien est à usage unique et valable une heure. Passé ce délai, refaites simplement une demande depuis la page de connexion.
+              </p>
+              <p style="margin:0;font-size:14px;line-height:22px;color:#6b655d;">
+                Si vous n'êtes pas à l'origine de cette demande, ignorez cet email : votre mot de passe actuel reste inchangé.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Lien de secours -->
+          <tr>
+            <td style="background-color:#ffffff;border-top:1px solid #e8e3da;padding:20px 36px 28px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+              <p style="margin:0 0 6px;font-size:12px;line-height:18px;color:#9a938a;">
+                Le bouton ne fonctionne pas ? Copiez ce lien dans votre navigateur :
+              </p>
+              <p style="margin:0;font-size:12px;line-height:18px;word-break:break-all;">
+                <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/auth/update-password"
+                   style="color:#0d3e2f;text-decoration:underline;">{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/auth/update-password</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Pied de page -->
+          <tr>
+            <td style="border-radius:0 0 12px 12px;background-color:#0d3e2f;padding:20px 36px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;text-align:center;">
+              <p style="margin:0;font-size:12px;line-height:18px;color:#c7a35c;letter-spacing:0.5px;">
+                TGA – Ton Golf Authentique
+              </p>
+              <p style="margin:4px 0 0;font-size:12px;line-height:18px;color:#a8bdb3;">
+                Votre assistant golf personnel
+              </p>
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
