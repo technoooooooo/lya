@@ -1,434 +1,226 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Switch } from "@/components/ui/switch";
-import { Users, Loader2, Copy, Check, Search, MessageSquare, BarChart3 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Download, Search, ShieldCheck, Users } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { Profile } from "@/types/database";
+import { Button } from "@/components/ui/button";
+import {
+  AccessBadge,
+  ErrorBox,
+  FilterChips,
+  Loading,
+  PageHeader,
+  Pill,
+  SOURCE_LABEL,
+  Td,
+  Th,
+  fullName,
+  relative,
+  shortDate,
+  useAdminData,
+} from "@/components/admin/kit";
+import type { AdminUserRow } from "@/lib/admin/users";
 
-interface PillarBreakdown {
-  pillarId: string | null;
-  pillarName: string;
-  count: number;
-  percentage: number;
+type Filter = "all" | "access" | "subscription" | "free" | "past_due" | "none" | "disabled" | "admin";
+type Sort = "recent" | "activity" | "name";
+
+const FILTERS: Array<{ key: Filter; label: string; match: (u: AdminUserRow) => boolean }> = [
+  { key: "all", label: "Tous", match: () => true },
+  { key: "access", label: "Avec accès", match: (u) => ["active", "lifetime", "past_due"].includes(u.access.state) },
+  { key: "subscription", label: "Abonnés", match: (u) => u.access.source === "stripe_subscription" && u.access.state !== "expired" && u.access.state !== "none" },
+  { key: "free", label: "Accès offert", match: (u) => (u.access.source === "manual" || u.access.source === "promo") && ["active", "lifetime"].includes(u.access.state) },
+  { key: "past_due", label: "Impayés", match: (u) => u.access.state === "past_due" },
+  { key: "none", label: "Sans accès", match: (u) => u.access.state === "none" || u.access.state === "expired" },
+  { key: "disabled", label: "Désactivés", match: (u) => !u.isActive },
+  { key: "admin", label: "Admins", match: (u) => u.role === "admin" },
+];
+
+function toCsv(rows: AdminUserRow[]) {
+  const header = ["Prénom", "Nom", "Email", "Golf", "Rôle", "Compte actif", "Accès", "Provenance", "Accès jusqu'au", "Inscription", "Dernière connexion", "Conversations", "Messages"];
+  const escape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = rows.map((u) =>
+    [
+      u.firstName,
+      u.lastName,
+      u.email,
+      u.golfClub,
+      u.role,
+      u.isActive ? "oui" : "non",
+      u.access.state,
+      u.access.source ? SOURCE_LABEL[u.access.source] : "",
+      u.access.until ? u.access.until.slice(0, 10) : u.access.state === "lifetime" ? "à vie" : "",
+      u.createdAt.slice(0, 10),
+      u.lastSignInAt?.slice(0, 10) ?? "",
+      u.activity?.conversations ?? "",
+      u.activity?.userMessages ?? "",
+    ]
+      .map(escape)
+      .join(";")
+  );
+  // BOM : Excel ouvre sinon le fichier en Latin-1 et casse les accents.
+  return "﻿" + [header.map(escape).join(";"), ...lines].join("\n");
 }
-
-interface UserStats {
-  totalConversations: number;
-  totalMessages: number;
-  breakdown: PillarBreakdown[];
-}
-
-const PILLAR_COLORS: Record<string, string> = {
-  Technique: "bg-green-700",
-  Mental: "bg-green-500",
-  Physique: "bg-emerald-400",
-  "Stratégie": "bg-lime-500",
-  "Matériel": "bg-teal-500",
-  Global: "bg-green-300",
-};
 
 export default function AdminUsersPage() {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const router = useRouter();
+  const { data, error, isLoading, reload } = useAdminData<AdminUserRow[]>("/api/admin/users");
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<Sort>("recent");
 
-  // Confirmation dialog state
-  const [confirmToggle, setConfirmToggle] = useState<{ userId: string; currentStatus: boolean } | null>(null);
+  const users = useMemo(() => data ?? [], [data]);
 
-  // Modal state
-  const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
-  const [userStats, setUserStats] = useState<UserStats | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
-
-  const fetchUsers = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/users");
-      const json = await res.json();
-      if (json.success) {
-        setProfiles(json.data);
-      } else {
-        setError(json.error?.message ?? "Erreur inconnue");
-      }
-    } catch {
-      setError("Erreur de connexion au serveur");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
-
-  const openUserStats = async (profile: Profile) => {
-    setSelectedUser(profile);
-    setUserStats(null);
-    setStatsLoading(true);
-    try {
-      const res = await fetch(`/api/admin/users/${profile.user_id}/stats`);
-      const json = await res.json();
-      if (json.success) {
-        setUserStats(json.data);
-      }
-    } catch {
-      // Stats will remain null, modal shows error state
-    } finally {
-      setStatsLoading(false);
-    }
-  };
-
-  const handleToggleClick = (userId: string, currentStatus: boolean) => {
-    setConfirmToggle({ userId, currentStatus });
-  };
-
-  const confirmToggleActive = async () => {
-    if (!confirmToggle) return;
-    const { userId, currentStatus } = confirmToggle;
-    setConfirmToggle(null);
-    setTogglingUserId(userId);
-    try {
-      const res = await fetch(`/api/admin/users/${userId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: !currentStatus }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setProfiles((prev) =>
-          prev.map((p) =>
-            p.user_id === userId ? { ...p, is_active: !currentStatus } : p
-          )
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const match = FILTERS.find((f) => f.key === filter)!.match;
+    const rows = users.filter(
+      (u) =>
+        match(u) &&
+        (!q ||
+          [u.firstName, u.lastName, u.email, u.golfClub, u.userId].some((v) => v?.toLowerCase().includes(q)))
+    );
+    return rows.sort((a, b) => {
+      if (sort === "name") return fullName(a).localeCompare(fullName(b), "fr");
+      if (sort === "activity") {
+        return (b.activity?.lastMessageAt ?? b.lastSignInAt ?? "").localeCompare(
+          a.activity?.lastMessageAt ?? a.lastSignInAt ?? ""
         );
       }
-    } catch {
-      // Silently fail, user can retry
-    } finally {
-      setTogglingUserId(null);
-    }
-  };
-
-  const truncateId = (id: string) => {
-    return id.length > 8 ? `${id.slice(0, 8)}...` : id;
-  };
-
-  const copyId = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    await navigator.clipboard.writeText(id);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("fr-FR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
+      return b.createdAt.localeCompare(a.createdAt);
     });
+  }, [users, search, filter, sort]);
+
+  const exportCsv = () => {
+    const blob = new Blob([toCsv(visible)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `utilisateurs-tga-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
-
-  const filteredProfiles = profiles.filter((p) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      (p.first_name?.toLowerCase().includes(q)) ||
-      (p.last_name?.toLowerCase().includes(q)) ||
-      (p.golf_club?.toLowerCase().includes(q)) ||
-      p.user_id.toLowerCase().includes(q)
-    );
-  });
-
-  if (isLoading) {
-    return (
-      <div className="max-w-7xl mx-auto p-8">
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="max-w-7xl mx-auto p-8">
-        <Card>
-          <CardContent className="p-6">
-            <p className="text-destructive">{error}</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
-    <div className="max-w-7xl mx-auto p-8">
-      <div className="flex items-center gap-3 mb-6">
-        <Users className="h-6 w-6" />
-        <h2 className="text-2xl font-bold">Gestion des utilisateurs</h2>
-        <Badge variant="secondary">{profiles.length}</Badge>
-      </div>
+    <div className="mx-auto max-w-7xl p-8">
+      <PageHeader
+        icon={Users}
+        title="Utilisateurs"
+        description="Comptes, accès, facturation et activité. Cliquez sur une ligne pour ouvrir la fiche."
+        actions={
+          <Button variant="outline" size="sm" onClick={exportCsv} disabled={!visible.length}>
+            <Download className="h-4 w-4" />
+            Exporter ({visible.length})
+          </Button>
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Liste des utilisateurs</CardTitle>
-          <CardDescription>
-            Consultez et gérez les comptes utilisateurs
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Rechercher par nom, prénom, golf ou ID..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                    Prénom
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                    Nom
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                    Golf
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                    User ID
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                    Role
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                    Abonnement
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                    Actif
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                    Inscription
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredProfiles.map((profile) => (
-                  <tr
-                    key={profile.id}
-                    className="border-b last:border-b-0 hover:bg-muted/50 cursor-pointer"
-                    onClick={() => openUserStats(profile)}
-                  >
-                    <td className="py-3 px-4">
-                      {profile.first_name || <span className="text-muted-foreground">-</span>}
-                    </td>
-                    <td className="py-3 px-4">
-                      {profile.last_name || <span className="text-muted-foreground">-</span>}
-                    </td>
-                    <td className="py-3 px-4 text-muted-foreground">
-                      {profile.golf_club || "-"}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-xs">
-                      <button
-                        type="button"
-                        onClick={(e) => copyId(e, profile.user_id)}
-                        className="inline-flex items-center gap-1.5 hover:text-foreground text-muted-foreground transition-colors cursor-pointer"
-                        title={`Copier ${profile.user_id}`}
-                      >
-                        {truncateId(profile.user_id)}
-                        {copiedId === profile.user_id ? (
-                          <Check className="h-3 w-3 text-green-500" />
-                        ) : (
-                          <Copy className="h-3 w-3" />
-                        )}
-                      </button>
-                    </td>
-                    <td className="py-3 px-4">
-                      <Badge
-                        variant={
-                          profile.role === "admin" ? "default" : "secondary"
-                        }
-                      >
-                        {profile.role}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4">
-                      <Badge
-                        variant={
-                          profile.subscription_status === "active"
-                            ? "default"
-                            : "outline"
-                        }
-                      >
-                        {profile.subscription_status === "active"
-                          ? "Actif"
-                          : "Inactif"}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                      {togglingUserId === profile.user_id ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      ) : (
-                        <Switch
-                          checked={profile.is_active}
-                          onCheckedChange={() =>
-                            handleToggleClick(profile.user_id, profile.is_active)
-                          }
-                        />
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-muted-foreground">
-                      {formatDate(profile.created_at)}
-                    </td>
-                  </tr>
-                ))}
-                {filteredProfiles.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={8}
-                      className="py-8 text-center text-muted-foreground"
-                    >
-                      {search ? "Aucun résultat" : "Aucun utilisateur"}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Confirmation Dialog */}
-      <AlertDialog open={!!confirmToggle} onOpenChange={(open) => !open && setConfirmToggle(null)}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmToggle?.currentStatus
-                ? "Es-tu sûr de vouloir désactiver ce compte ?"
-                : "Es-tu sûr de vouloir activer ce compte ?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmToggle?.currentStatus
-                ? "L'utilisateur ne pourra plus accéder à l'application."
-                : "L'utilisateur pourra à nouveau accéder à l'application."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Non</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmToggleActive}>Oui</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* User Stats Modal */}
-      <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              {selectedUser?.first_name || selectedUser?.last_name
-                ? `${selectedUser?.first_name ?? ""} ${selectedUser?.last_name ?? ""}`.trim()
-                : "Utilisateur"}
-            </DialogTitle>
-          </DialogHeader>
-
-          {statsLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : !userStats ? (
-            <p className="text-sm text-muted-foreground py-4">
-              Impossible de charger les statistiques.
-            </p>
-          ) : (
-            <div className="space-y-6">
-              {/* Summary cards */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg border p-3 text-center">
-                  <MessageSquare className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-                  <div className="text-2xl font-bold">{userStats.totalConversations}</div>
-                  <div className="text-xs text-muted-foreground">Conversations</div>
-                </div>
-                <div className="rounded-lg border p-3 text-center">
-                  <MessageSquare className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-                  <div className="text-2xl font-bold">{userStats.totalMessages}</div>
-                  <div className="text-xs text-muted-foreground">Messages</div>
-                </div>
+      {error ? (
+        <ErrorBox message={error} onRetry={() => reload()} />
+      ) : isLoading && !data ? (
+        <Loading />
+      ) : (
+        <Card>
+          <CardContent className="space-y-4 p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative min-w-64 flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Nom, email, golf…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
               </div>
-
-              {/* Pillar breakdown */}
-              {userStats.totalConversations === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-2">
-                  Aucune conversation
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium">Répartition par pilier</h4>
-
-                  {/* Bar chart */}
-                  <div className="flex h-4 rounded-full overflow-hidden">
-                    {userStats.breakdown.map((item) => (
-                      <div
-                        key={item.pillarName}
-                        className={`${PILLAR_COLORS[item.pillarName] || "bg-muted-foreground"} transition-all`}
-                        style={{ width: `${item.percentage}%` }}
-                        title={`${item.pillarName}: ${item.percentage}%`}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Legend */}
-                  <div className="space-y-2">
-                    {userStats.breakdown.map((item) => (
-                      <div key={item.pillarName} className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className={`h-3 w-3 rounded-full ${PILLAR_COLORS[item.pillarName] || "bg-muted-foreground"}`}
-                          />
-                          <span>{item.pillarName}</span>
-                        </div>
-                        <span className="text-muted-foreground">
-                          {item.count} conv. ({item.percentage}%)
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                Trier par
+                {(["recent", "activity", "name"] as Sort[]).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setSort(s)}
+                    className={sort === s ? "font-medium text-foreground underline underline-offset-4" : "hover:text-foreground"}
+                  >
+                    {s === "recent" ? "inscription" : s === "activity" ? "activité" : "nom"}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+
+            <FilterChips
+              options={FILTERS.map((f) => ({ key: f.key, label: f.label, count: users.filter(f.match).length }))}
+              value={filter}
+              onChange={setFilter}
+            />
+
+            <div className="-mx-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-y bg-muted/30">
+                  <tr>
+                    <Th>Utilisateur</Th>
+                    <Th>Accès</Th>
+                    <Th>Provenance</Th>
+                    <Th>Échéance</Th>
+                    <Th className="text-right">Messages</Th>
+                    <Th>Dernière activité</Th>
+                    <Th>Inscription</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((u) => (
+                    <tr
+                      key={u.userId}
+                      onClick={() => router.push(`/admin/users/${u.userId}`)}
+                      className="cursor-pointer border-b last:border-b-0 hover:bg-muted/50"
+                    >
+                      <Td>
+                        <div className="flex items-center gap-3">
+                          {u.avatarUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={u.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                          ) : (
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                              {fullName(u).charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 font-medium">
+                              <span className="truncate">{fullName(u)}</span>
+                              {u.role === "admin" && <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-golf" aria-label="Admin" />}
+                              {!u.isActive && <Pill tone="critical">Désactivé</Pill>}
+                            </div>
+                            <div className="truncate text-xs text-muted-foreground">{u.email ?? u.userId}</div>
+                          </div>
+                        </div>
+                      </Td>
+                      <Td>
+                        <AccessBadge state={u.access.state} />
+                      </Td>
+                      <Td className="text-muted-foreground">{u.access.source ? SOURCE_LABEL[u.access.source] : "—"}</Td>
+                      <Td className="whitespace-nowrap text-muted-foreground">
+                        {u.access.state === "lifetime" ? "—" : shortDate(u.access.until)}
+                      </Td>
+                      <Td className="text-right tabular-nums">{u.activity?.userMessages ?? "—"}</Td>
+                      <Td className="whitespace-nowrap text-muted-foreground">
+                        {relative(u.activity?.lastMessageAt ?? u.lastSignInAt)}
+                      </Td>
+                      <Td className="whitespace-nowrap text-muted-foreground">{shortDate(u.createdAt)}</Td>
+                    </tr>
+                  ))}
+                  {visible.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-10 text-center text-muted-foreground">
+                        {search || filter !== "all" ? "Aucun utilisateur ne correspond" : "Aucun utilisateur"}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

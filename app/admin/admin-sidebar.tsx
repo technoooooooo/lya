@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Users, LogOut, ArrowLeft, User, Sun, Moon, BookOpen } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, ArrowLeft, User, Sun, Moon, BookOpen, CreditCard, Ticket } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
@@ -41,6 +41,16 @@ const navItems = [
     label: "Utilisateurs",
     href: "/admin/users",
     icon: Users,
+  },
+  {
+    label: "Paiements",
+    href: "/admin/payments",
+    icon: CreditCard,
+  },
+  {
+    label: "Codes promo",
+    href: "/admin/promo-codes",
+    icon: Ticket,
   },
   {
     label: "Configuration IA",

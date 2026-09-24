@@ -91,6 +91,17 @@ Three client variants, use the right one depending on context:
 
 The Stripe webhook uses a service-role admin client to bypass RLS.
 
+### Signup Flow
+
+`/auth/signup` is a 2-step flow (`components/auth/SignUpFlow.tsx`): choose an offer (public offers read server-side with the service-role client — the `offers` RLS is `authenticated` only), then create the account. `POST /api/auth/signup` creates the user **already confirmed** (`auth.admin.createUser`, no confirmation email), the browser signs in with the password and goes straight to `/api/stripe/checkout`. An optional coach access code (`promo_codes`) replaces payment: it inserts an `access_grants` row (`source: 'promo'`). Accounts left unconfirmed by the old email flow (never signed in) are reclaimed instead of returning "email taken". Stripe discount codes are entered at Checkout (`allow_promotion_codes`). `?offre=<id|slug|internal_name>` preselects an offer.
+
+### Admin Back-office (users & payments)
+
+- `/admin` dashboard (Stripe KPIs + user metrics), `/admin/users` (list with filters/CSV) → `/admin/users/[userId]` (access grants: offer/revoke; Stripe subscriptions: cancel at period end / resume / cancel now; invoices: PDF, refund; role/active toggles; password-reset email), `/admin/payments` (Lya subscriptions + invoices, live), `/admin/promo-codes` (Stripe discount codes + free access codes).
+- Shared UI in `components/admin/kit.tsx`; server helpers in `lib/admin/` (`users.ts`, `payments.ts` — 60 s in-memory cache, `http.ts`) and `lib/stripe/admin.ts`.
+- **Shared Stripe account**: every list is filtered on the price ids of the `offers` table, every write checks the object is Lya's first (`ForeignStripeObjectError`). Coupons are created with `metadata.managed_by=lya` and `applies_to` the active Lya products only. Admin Stripe calls pin `Stripe-Version: 2024-06-20` so object shapes don't depend on the account default.
+- Access codes (`promo_codes`, migration 021: `access_days`, `label`, `access_grants.promo_code_id`) and user activity (`admin_user_activity()` RPC, service-role only) need migration 021 applied.
+
 ### Auth State
 
 `contexts/AuthContext.tsx` provides `useAuth()` hook with:

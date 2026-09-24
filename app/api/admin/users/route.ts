@@ -1,37 +1,14 @@
 import { requireAdmin } from "@/lib/auth/requireAdmin";
-import { NextResponse } from "next/server";
+import { listAdminUsers } from "@/lib/admin/users";
+import { ok, failFrom } from "@/lib/admin/http";
 
 export async function GET() {
+  const { response } = await requireAdmin();
+  if (response) return response;
+
   try {
-    const { supabase, response } = await requireAdmin();
-    if (response) return response;
-
-    const { data: profiles, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            message: "Erreur chargement utilisateurs",
-            code: "DB_ERROR",
-          },
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ success: true, data: profiles });
-  } catch {
-    return NextResponse.json(
-      {
-        success: false,
-        error: { message: "Erreur serveur", code: "SERVER_ERROR" },
-      },
-      { status: 500 }
-    );
+    return ok(await listAdminUsers());
+  } catch (error) {
+    return failFrom(error, "liste des utilisateurs");
   }
 }

@@ -51,11 +51,17 @@ export class StripeApiError extends Error {
   }
 }
 
+interface RequestOptions {
+  idempotencyKey?: string;
+  /** Épingle la forme des objets renvoyés, indépendamment de la version du compte. */
+  stripeVersion?: string;
+}
+
 async function request<T>(
   method: "GET" | "POST" | "DELETE",
   path: string,
   data?: Record<string, unknown>,
-  options?: { idempotencyKey?: string }
+  options?: RequestOptions
 ): Promise<T> {
   const headers: Record<string, string> = { Authorization: `Bearer ${apiKey()}` };
   let url = `${API_BASE}${path}`;
@@ -73,6 +79,7 @@ async function request<T>(
 
   // Stripe déduplique les créations rejouées (retry réseau) sur cette clé.
   if (options?.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
+  if (options?.stripeVersion) headers["Stripe-Version"] = options.stripeVersion;
 
   const response = await fetch(url, { method, headers, body });
   const payload = await response.json();
@@ -90,10 +97,12 @@ async function request<T>(
 }
 
 export const stripeApi = {
-  get: <T>(path: string, params?: Record<string, unknown>) => request<T>("GET", path, params),
-  post: <T>(path: string, data?: Record<string, unknown>, options?: { idempotencyKey?: string }) =>
+  get: <T>(path: string, params?: Record<string, unknown>, options?: RequestOptions) =>
+    request<T>("GET", path, params, options),
+  post: <T>(path: string, data?: Record<string, unknown>, options?: RequestOptions) =>
     request<T>("POST", path, data, options),
-  delete: <T>(path: string) => request<T>("DELETE", path),
+  delete: <T>(path: string, options?: RequestOptions) =>
+    request<T>("DELETE", path, undefined, options),
 };
 
 // --- Formes minimales des objets Stripe utilisés ---------------------------
