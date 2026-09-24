@@ -1,11 +1,45 @@
-import { SignUpForm } from "@/components/sign-up-form";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { isOfferOnSale } from "@/lib/billing/offers";
+import { SignUpFlow } from "@/components/auth/SignUpFlow";
+import type { Offer } from "@/types/database";
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ offre?: string }>;
+}) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Déjà connecté : le choix d'une formule se fait depuis l'app.
+  if (user) redirect("/abonnement");
+
+  // La RLS des offres est réservée aux utilisateurs connectés ; ici le
+  // visiteur n'a pas encore de compte. On relit donc avec la clé de service,
+  // en reproduisant le même filtre (publiques, actives, dans leur fenêtre) et
+  // sans exposer d'offre restreinte à l'Académie.
+  const { data } = await getSupabaseAdmin()
+    .from("offers")
+    .select("*")
+    .eq("visibility", "public")
+    .eq("eligibility", "all")
+    .eq("is_active", true)
+    .order("display_order", { ascending: true });
+
+  const offers = ((data ?? []) as Offer[]).filter((offer) => isOfferOnSale(offer));
+  const { offre } = await searchParams;
+
   return (
     <div className="flex min-h-svh">
-      <div className="flex flex-1 items-center justify-center p-6 md:p-10">
-        <div className="w-full max-w-sm">
-          <SignUpForm />
+      <div className="flex flex-1 justify-center px-4 py-8 sm:p-10 lg:items-center">
+        <div className="w-full max-w-md">
+          <SignUpFlow offers={offers} initialOfferId={offre} />
         </div>
       </div>
       <div className="hidden lg:block lg:flex-1 relative overflow-hidden">
