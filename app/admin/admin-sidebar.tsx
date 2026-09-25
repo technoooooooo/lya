@@ -31,36 +31,35 @@ function LyaIcon({ className }: { className?: string }) {
   );
 }
 
-const navItems = [
+type NavItem = {
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
+/** Onglets regroupés par métier : suivi, élèves, ventes, puis l'IA elle-même. */
+const navGroups: Array<{ title: string | null; items: NavItem[] }> = [
   {
-    label: "Dashboard",
-    href: "/admin",
-    icon: LayoutDashboard,
+    title: null,
+    items: [{ label: "Tableau de bord", href: "/admin", icon: LayoutDashboard }],
   },
   {
-    label: "Utilisateurs",
-    href: "/admin/users",
-    icon: Users,
+    title: "Élèves",
+    items: [{ label: "Utilisateurs", href: "/admin/users", icon: Users }],
   },
   {
-    label: "Paiements",
-    href: "/admin/payments",
-    icon: CreditCard,
+    title: "Ventes",
+    items: [
+      { label: "Paiements", href: "/admin/payments", icon: CreditCard },
+      { label: "Codes promo", href: "/admin/promo-codes", icon: Ticket },
+    ],
   },
   {
-    label: "Codes promo",
-    href: "/admin/promo-codes",
-    icon: Ticket,
-  },
-  {
-    label: "Configuration IA",
-    href: "/admin/ai",
-    icon: LyaIcon,
-  },
-  {
-    label: "Documentation",
-    href: "/admin/documentation",
-    icon: BookOpen,
+    title: "Coach IA",
+    items: [
+      { label: "Configuration IA", href: "/admin/ai", icon: LyaIcon },
+      { label: "Documentation", href: "/admin/documentation", icon: BookOpen },
+    ],
   },
 ];
 
@@ -82,29 +81,38 @@ export function AdminSidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 space-y-1">
-        {navItems.map((item) => {
-          const isActive =
-            item.href === "/admin"
-              ? pathname === "/admin"
-              : pathname.startsWith(item.href);
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3">
+        {navGroups.map((group) => (
+          <div key={group.title ?? "home"} className="space-y-1">
+            {group.title && (
+              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {group.title}
+              </p>
+            )}
+            {group.items.map((item) => {
+              const isActive =
+                item.href === "/admin"
+                  ? pathname === "/admin"
+                  : pathname.startsWith(item.href);
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-golf text-golf-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </Link>
-          );
-        })}
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-golf text-golf-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <item.icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* User menu */}
