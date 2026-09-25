@@ -62,6 +62,8 @@ export function SignUpFlow({
 
   // Une fois le compte créé, un nouvel essai ne relance que le paiement.
   const [accountCreated, setAccountCreated] = useState(false);
+  // Code de réduction Stripe reconnu à l'inscription, appliqué au Checkout.
+  const [promotionCode, setPromotionCode] = useState<string | null>(null);
   const [phase, setPhase] = useState<"idle" | "account" | "payment">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -74,15 +76,17 @@ export function SignUpFlow({
     setStep("account");
   };
 
-  const startCheckout = async (id: string) => {
+  const startCheckout = async (id: string, code: string | null) => {
     setPhase("payment");
     const res = await fetch("/api/stripe/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ offerId: id }),
+      body: JSON.stringify({ offerId: id, promotionCode: code ?? undefined }),
     });
     const result = await res.json().catch(() => null);
     if (!result?.success) {
+      // Code devenu invalide entre-temps : le prochain essai part sans remise.
+      if (result?.error?.code === "INVALID_PROMOTION_CODE") setPromotionCode(null);
       throw new Error(
         result?.error?.message ??
           "Le service de paiement ne répond pas. Réessayez dans un instant.",
@@ -95,6 +99,7 @@ export function SignUpFlow({
     e.preventDefault();
     setError(null);
 
+    let code = promotionCode;
     try {
       if (!accountCreated) {
         setPhase("account");
@@ -125,6 +130,8 @@ export function SignUpFlow({
           );
         }
         setAccountCreated(true);
+        code = result.data.promotionCode ?? null;
+        setPromotionCode(code);
 
         if (result.data.accessGranted) {
           router.push("/");
@@ -135,10 +142,10 @@ export function SignUpFlow({
 
       if (!offer) {
         // Code d'accès consommé entre-temps : le compte existe, il reste à choisir une formule.
-        router.push("/abonnement");
+        router.push("/account");
         return;
       }
-      await startCheckout(offer.id);
+      await startCheckout(offer.id, code);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue");
       setPhase("idle");

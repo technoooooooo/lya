@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { siteUrl } from "@/lib/env";
 import { stripeApi } from "@/lib/stripe";
 import { ensureStripeCustomer } from "@/lib/stripe/customer";
+import { findUsableLyaPromotionCode } from "@/lib/stripe/admin";
 import { isOfferOnSale, checkEligibility } from "@/lib/billing/offers";
 import type { Offer } from "@/types/database";
 
@@ -31,7 +32,12 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { offerId, slug } = body as { offerId?: string; slug?: string };
+    const { offerId, slug, promotionCode } = body as {
+      offerId?: string;
+      slug?: string;
+      /** Code de réduction saisi à l'inscription, appliqué d'office au Checkout. */
+      promotionCode?: string;
+    };
 
     if (!offerId && !slug) {
       return error("Offre non précisée", "MISSING_OFFER", 400);
@@ -69,6 +75,19 @@ export async function POST(request: Request) {
       storedCustomerId: profile?.stripe_customer_id ?? null,
     });
 
+    // Revérifié ici : le client ne transmet qu'une saisie, jamais un id Stripe.
+    const discount =
+      typeof promotionCode === "string" && promotionCode.trim()
+        ? await findUsableLyaPromotionCode(promotionCode)
+        : null;
+    if (promotionCode && !discount) {
+      return error(
+        "Ce code de réduction n'est plus valable. Vous pourrez en saisir un autre sur la page de paiement.",
+        "INVALID_PROMOTION_CODE",
+        409
+      );
+    }
+
     const base = siteUrl();
     const isSubscription = offer.mode === "subscription";
 
@@ -79,10 +98,14 @@ export async function POST(request: Request) {
         customer: customerId,
         client_reference_id: user.id,
         line_items: [{ price: offer.stripe_price_id, quantity: 1 }],
-        // Les codes promo restent créés et pilotés dans Stripe.
-        allow_promotion_codes: true,
+        // Les codes promo restent créés et pilotés dans Stripe. Stripe refuse
+        // discounts et allow_promotion_codes ensemble : un code déjà connu est
+        // appliqué d'office, sinon l'élève peut en saisir un sur la page.
+        ...(discount
+          ? { discounts: [{ promotion_code: discount.id }] }
+          : { allow_promotion_codes: true }),
         success_url: `${base}/abonnement/merci?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${base}/abonnement`,
+        cancel_url: `${base}/account#acces`,
         metadata: { user_id: user.id, offer_id: offer.id },
         ...(isSubscription
           ? {
@@ -104,7 +127,7 @@ export async function POST(request: Request) {
       // la journée alors que la cause est corrigée.
       {
         idempotencyKey:
-          `checkout:${user.id}:${offer.id}:${offer.stripe_price_id}:` +
+          `checkout:${user.id}:${offer.id}:${offer.stripe_price_id}:${discount?.id ?? "-"}:` +
           `${Math.floor(Date.now() / 60_000)}`,
       }
     );

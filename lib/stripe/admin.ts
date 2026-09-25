@@ -566,6 +566,34 @@ export async function createLyaPromotionCode(draft: PromotionCodeDraft): Promise
   }
 }
 
+/**
+ * Code de réduction Lya utilisable, recherché par sa saisie (Stripe compare
+ * sans tenir compte de la casse). Sert à l'inscription : un élève qui tape un
+ * code de réduction dans le champ « code d'accès » part au Checkout avec la
+ * remise déjà appliquée au lieu d'être renvoyé en arrière.
+ */
+export async function findUsableLyaPromotionCode(
+  rawCode: string
+): Promise<{ id: string; code: string } | null> {
+  const code = rawCode.trim();
+  if (!code) return null;
+
+  const { data } = await stripeApi.get<List<PromotionCode>>(
+    "/promotion_codes",
+    { code, active: true, limit: 10 },
+    VERSION
+  );
+  const now = Date.now() / 1000;
+  const usable = data.find(
+    (pc) =>
+      isLyaCoupon(pc.coupon) &&
+      pc.coupon.valid &&
+      (!pc.expires_at || pc.expires_at > now) &&
+      (pc.max_redemptions === null || pc.times_redeemed < pc.max_redemptions)
+  );
+  return usable ? { id: usable.id, code: usable.code } : null;
+}
+
 /** Active ou désactive un code (un code Stripe ne se supprime pas). */
 export async function setPromotionCodeActive(id: string, active: boolean): Promise<AdminPromotionCode> {
   const current = await stripeApi.get<PromotionCode>(`/promotion_codes/${id}`, undefined, VERSION);

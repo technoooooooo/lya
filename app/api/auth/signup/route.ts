@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { signupSchema } from "@/lib/validations/auth";
+import { findUsableLyaPromotionCode } from "@/lib/stripe/admin";
 
 function error(message: string, code: string, status: number) {
   return NextResponse.json({ success: false, error: { message, code } }, { status });
@@ -42,10 +43,19 @@ export async function POST(request: Request) {
     // Le code est vérifié avant de créer quoi que ce soit : un code erroné ne
     // doit pas laisser derrière lui un compte sans accès.
     let promo: PromoCode | null = null;
+    // Code de réduction Stripe saisi à la place d'un code d'accès : le compte
+    // est créé normalement et le Checkout s'ouvre avec la remise appliquée.
+    let promotionCode: string | null = null;
     if (accessCode) {
       const verdict = await findUsablePromo(admin, accessCode);
-      if (!verdict.ok) return error(verdict.message, verdict.code, 400);
-      promo = verdict.promo;
+      if (verdict.ok) {
+        promo = verdict.promo;
+      } else if (verdict.code === "INVALID_CODE") {
+        promotionCode = await findStripeDiscountCode(accessCode);
+        if (!promotionCode) return error(verdict.message, verdict.code, 400);
+      } else {
+        return error(verdict.message, verdict.code, 400);
+      }
     }
 
     const metadata = { first_name: firstName, last_name: lastName };
@@ -88,7 +98,7 @@ export async function POST(request: Request) {
       accessGranted = await redeemPromo(admin, promo, userId);
     }
 
-    return NextResponse.json({ success: true, data: { accessGranted } });
+    return NextResponse.json({ success: true, data: { accessGranted, promotionCode } });
   } catch (err) {
     console.error("[SIGNUP] création de compte impossible", err);
     return error("Impossible de créer le compte pour le moment. Réessayez dans un instant.", "SERVER_ERROR", 500);
@@ -111,8 +121,7 @@ async function findUsablePromo(
     return {
       ok: false,
       code: "INVALID_CODE",
-      message:
-        "Code d'accès inconnu. S'il s'agit d'un code de réduction, choisissez une formule : vous le saisirez au moment du paiement.",
+      message: "Code inconnu, expiré ou déjà utilisé. Vérifiez la saisie auprès de votre coach.",
     };
   }
   if (promo.expires_at && new Date(promo.expires_at) < new Date()) {
@@ -122,6 +131,17 @@ async function findUsablePromo(
     return { ok: false, code: "EXHAUSTED_CODE", message: "Ce code d'accès a déjà été utilisé le nombre maximum de fois." };
   }
   return { ok: true, promo };
+}
+
+async function findStripeDiscountCode(rawCode: string): Promise<string | null> {
+  try {
+    return (await findUsableLyaPromotionCode(rawCode))?.code ?? null;
+  } catch (err) {
+    // Stripe indisponible : le code est traité comme inconnu plutôt que de
+    // bloquer l'inscription.
+    console.error("[SIGNUP] vérification du code de réduction impossible", err);
+    return null;
+  }
 }
 
 /**
