@@ -1,261 +1,39 @@
-"use client";
+import { createClient } from "@/lib/supabase/server";
+import { AccountView } from "@/components/account/AccountView";
+import { isOfferOnSale } from "@/lib/billing/offers";
+import { currentLyaSubscription, type MySubscription } from "@/lib/stripe/admin";
+import type { Offer } from "@/types/database";
 
-import { useState } from "react";
-import { useAuth } from "@/contexts/AuthContext";
-import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { PasswordInput } from "@/components/ui/password-input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { CreditCard, ExternalLink, AlertTriangle } from "lucide-react";
-import Link from "next/link";
-import { accessSourceLabel, hasActiveAccess, isPaymentAtRisk } from "@/lib/billing/access";
+export const dynamic = "force-dynamic";
 
-export default function AccountPage() {
-  const { user, profile, isLoading } = useAuth();
+/**
+ * « Mon compte » : une seule page pour l'accès (état, formule, paiement),
+ * les informations personnelles et la connexion. Remplace les anciennes pages
+ * Informations / Compte / Abonnement, qui redirigent ici.
+ */
+export default async function AccountPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  // Email change
-  const [newEmail, setNewEmail] = useState("");
-  const [emailError, setEmailError] = useState<string | null>(null);
-  const [emailSuccess, setEmailSuccess] = useState(false);
-  const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
+  // La RLS ne renvoie que les offres publiques, actives et dans leur fenêtre.
+  const [{ data: offerRows }, { data: profileRow }] = await Promise.all([
+    supabase.from("offers").select("*").order("display_order", { ascending: true }),
+    user
+      ? supabase.from("profiles").select("stripe_customer_id").eq("user_id", user.id).single()
+      : Promise.resolve({ data: null }),
+  ]);
 
-  // Password change
-  const [newPassword, setNewPassword] = useState("");
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [passwordSuccess, setPasswordSuccess] = useState(false);
-  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const offers = ((offerRows ?? []) as Offer[]).filter((offer) => isOfferOnSale(offer));
 
-  // Stripe portal
-  const [isLoadingPortal, setIsLoadingPortal] = useState(false);
-
-  const handleUpdateEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsUpdatingEmail(true);
-    setEmailError(null);
-    setEmailSuccess(false);
-
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.updateUser({ email: newEmail });
-      if (error) throw error;
-      setEmailSuccess(true);
-      setNewEmail("");
-    } catch (error: unknown) {
-      setEmailError(error instanceof Error ? error.message : "Une erreur est survenue");
-    } finally {
-      setIsUpdatingEmail(false);
-    }
-  };
-
-  const handleUpdatePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsUpdatingPassword(true);
-    setPasswordError(null);
-    setPasswordSuccess(false);
-
-    if (newPassword.length < 6) {
-      setPasswordError("Le mot de passe doit contenir au moins 6 caractères");
-      setIsUpdatingPassword(false);
-      return;
-    }
-
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
-      setPasswordSuccess(true);
-      setNewPassword("");
-    } catch (error: unknown) {
-      setPasswordError(error instanceof Error ? error.message : "Une erreur est survenue");
-    } finally {
-      setIsUpdatingPassword(false);
-    }
-  };
-
-  const handleManageSubscription = async () => {
-    setIsLoadingPortal(true);
-    try {
-      const res = await fetch("/api/stripe/portal", { method: "POST" });
-      const data = await res.json();
-      if (data.success) {
-        window.location.href = data.data.url;
-      }
-    } catch {
-      // Portal not available
-    } finally {
-      setIsLoadingPortal(false);
-    }
-  };
-
-  if (isLoading && !user) {
-    return (
-      <div className="max-w-2xl mx-auto p-8">
-        <p className="text-muted-foreground">Chargement...</p>
-      </div>
-    );
+  // Stripe indisponible : la page reste utilisable, sans le détail de la formule.
+  let subscription: MySubscription | null = null;
+  try {
+    subscription = await currentLyaSubscription(profileRow?.stripe_customer_id ?? null);
+  } catch (err) {
+    console.error("[ACCOUNT] lecture de l'abonnement Stripe impossible", err);
   }
 
-  const subscriptionLabel =
-    profile?.subscription_status === "active"
-      ? "Actif"
-      : profile?.subscription_status === "past_due"
-        ? "En retard de paiement"
-        : "Inactif";
-
-  const subscriptionVariant =
-    profile?.subscription_status === "active"
-      ? "default"
-      : profile?.subscription_status === "past_due"
-        ? "secondary"
-        : "outline";
-
-  return (
-    <div className="max-w-2xl mx-auto p-8 space-y-6">
-      <h2 className="text-2xl font-bold">Compte</h2>
-
-      {/* Email */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Adresse email</CardTitle>
-          <CardDescription>
-            Votre email actuel : <span className="font-medium text-foreground">{user?.email}</span>
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleUpdateEmail} className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="new-email">Nouvel email</Label>
-              <Input
-                id="new-email"
-                type="email"
-                required
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="nouveau@email.com"
-              />
-            </div>
-            {emailError && <p className="text-sm text-red-500">{emailError}</p>}
-            {emailSuccess && (
-              <p className="text-sm text-green-600">
-                Un email de confirmation a été envoyé à votre nouvelle adresse
-              </p>
-            )}
-            <Button type="submit" disabled={isUpdatingEmail}>
-              {isUpdatingEmail ? "Mise à jour..." : "Modifier l'email"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Password */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Mot de passe</CardTitle>
-          <CardDescription>
-            Modifiez votre mot de passe de connexion
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleUpdatePassword} className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="new-password">Nouveau mot de passe</Label>
-              <PasswordInput
-                id="new-password"
-                required
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
-            </div>
-            {passwordError && <p className="text-sm text-red-500">{passwordError}</p>}
-            {passwordSuccess && (
-              <p className="text-sm text-green-600">Mot de passe mis à jour</p>
-            )}
-            <Button type="submit" disabled={isUpdatingPassword}>
-              {isUpdatingPassword ? "Mise à jour..." : "Modifier le mot de passe"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Subscription / Stripe */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Abonnement
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-3">
-            <Badge variant={subscriptionVariant as "default" | "secondary" | "outline"}>
-              {subscriptionLabel}
-            </Badge>
-            <span className="text-sm text-muted-foreground">
-              {accessSourceLabel(profile?.access_source)}
-            </span>
-          </div>
-
-          {/* La date de fin est la vraie information : elle couvre aussi bien
-              l'abonné résilié qui garde son accès que l'accès offert. */}
-          {profile?.has_lifetime_access ? (
-            <p className="text-sm text-muted-foreground">Accès à vie, sans échéance.</p>
-          ) : (
-            profile?.access_until && (
-              <p className="text-sm text-muted-foreground">
-                Accès ouvert jusqu&apos;au{" "}
-                <span className="font-medium text-foreground">
-                  {new Date(profile.access_until).toLocaleDateString("fr-FR", {
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })}
-                </span>
-              </p>
-            )
-          )}
-
-          {isPaymentAtRisk(profile) && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-              <span>
-                Votre dernier paiement a échoué. Mettez à jour votre moyen de paiement pour
-                éviter la coupure de votre accès.
-              </span>
-            </div>
-          )}
-
-          {profile?.stripe_customer_id && (
-            <Button
-              variant="outline"
-              onClick={handleManageSubscription}
-              disabled={isLoadingPortal}
-              className="gap-2"
-            >
-              <ExternalLink className="h-4 w-4" />
-              {isLoadingPortal ? "Redirection..." : "Gérer mon abonnement"}
-            </Button>
-          )}
-
-          {!hasActiveAccess(profile) && (
-            <Button asChild className="gap-2">
-              <Link href="/abonnement">
-                <CreditCard className="h-4 w-4" />
-                Voir les offres
-              </Link>
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return <AccountView offers={offers} subscription={subscription} />;
 }

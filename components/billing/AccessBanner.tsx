@@ -23,7 +23,7 @@ export function AccessBanner() {
   // Les admins utilisent l'app sans abonnement, et on n'affiche rien sur les
   // pages qui parlent déjà d'abonnement.
   if (isLoading || isAdmin || !profile) return null;
-  if (pathname.startsWith("/abonnement") || pathname.startsWith("/account")) return null;
+  if (pathname.startsWith("/account")) return null;
 
   if (isPaymentAtRisk(profile)) {
     const days = daysRemaining(profile);
@@ -40,7 +40,7 @@ export function AccessBanner() {
           </span>
         </div>
         <Link
-          href="/account"
+          href="/account#acces"
           className="flex shrink-0 items-center gap-1.5 rounded-md bg-amber-950/15 px-3 py-1 font-medium transition-colors hover:bg-amber-950/25"
         >
           Régulariser
@@ -58,7 +58,7 @@ export function AccessBanner() {
           <span>Votre accès à TGA n&apos;est pas actif.</span>
         </div>
         <Link
-          href="/abonnement"
+          href="/account#acces"
           className="flex shrink-0 items-center gap-1.5 rounded-md bg-foreground/10 px-3 py-1 font-medium transition-colors hover:bg-foreground/20"
         >
           Voir les offres

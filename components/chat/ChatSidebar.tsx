@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
-import { Plus, Sun, Moon, User, Settings, LogOut, PanelLeftClose, PanelLeft, CreditCard } from "lucide-react";
+import { Plus, Sun, Moon, User, LogOut, PanelLeftClose, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -161,17 +161,9 @@ export function ChatSidebar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-56">
-            <DropdownMenuItem onClick={() => router.push("/informations")}>
-              <User className="h-4 w-4 mr-2" />
-              Informations
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => router.push("/account")}>
-              <Settings className="h-4 w-4 mr-2" />
-              Compte
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push("/abonnement")}>
-              <CreditCard className="h-4 w-4 mr-2" />
-              Abonnement
+              <User className="h-4 w-4 mr-2" />
+              Mon compte
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
               {theme === "dark" ? (

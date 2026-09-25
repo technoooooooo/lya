@@ -18,7 +18,7 @@ export default async function Page({
   } = await supabase.auth.getUser();
 
   // Déjà connecté : le choix d'une formule se fait depuis l'app.
-  if (user) redirect("/abonnement");
+  if (user) redirect("/account");
 
   // La RLS des offres est réservée aux utilisateurs connectés ; ici le
   // visiteur n'a pas encore de compte. On relit donc avec la clé de service,

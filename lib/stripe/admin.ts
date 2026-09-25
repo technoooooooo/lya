@@ -602,3 +602,55 @@ export async function setPromotionCodeActive(id: string, active: boolean): Promi
   const updated = await stripeApi.post<PromotionCode>(`/promotion_codes/${id}`, { active }, VERSION);
   return toAdminPromotionCode(updated);
 }
+
+// --- Espace élève -----------------------------------------------------------------
+
+export interface MySubscription {
+  offerName: string | null;
+  amount: number;
+  currency: string;
+  interval: string | null;
+  intervalCount: number;
+  status: string;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: string | null;
+  trialEnd: string | null;
+}
+
+const LIVE_STATUSES = ["active", "trialing", "past_due", "unpaid", "incomplete"];
+
+/**
+ * Abonnement Lya en cours d'un client, pour la page « Mon compte » : formule,
+ * prix, renouvellement ou fin programmée. Null si aucun, ou si le client
+ * mémorisé n'existe pas sous la clé courante (client créé en mode test).
+ */
+export async function currentLyaSubscription(customerId: string | null): Promise<MySubscription | null> {
+  if (!customerId) return null;
+
+  let subs: Subscription[];
+  try {
+    subs = await listAll<Subscription>("/subscriptions", { customer: customerId, status: "all" }, 1);
+  } catch (error) {
+    if (error instanceof StripeApiError && (error.status === 404 || error.status === 400)) return null;
+    throw error;
+  }
+
+  const catalog = await lyaPriceCatalog();
+  const current = subs
+    .filter((s) => LIVE_STATUSES.includes(s.status))
+    .find((s) => s.items.data.some((i) => catalog.has(i.price.id)));
+  if (!current) return null;
+
+  const sub = toAdminSubscription(current, catalog);
+  return {
+    offerName: sub.offerName,
+    amount: sub.amount,
+    currency: sub.currency,
+    interval: sub.interval,
+    intervalCount: sub.intervalCount,
+    status: sub.status,
+    cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+    currentPeriodEnd: sub.currentPeriodEnd,
+    trialEnd: sub.trialEnd,
+  };
+}
