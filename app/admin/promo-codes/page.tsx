@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, Copy, ExternalLink, Gift, Loader2, Plus, Shuffle, Ticket } from "lucide-react";
+import { Check, Copy, ExternalLink, Gift, Loader2, Plus, Shuffle, Ticket, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,7 +78,29 @@ export default function AdminPromoCodesPage() {
   const [createStripe, setCreateStripe] = useState(false);
   const [createAccess, setCreateAccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toDelete, setToDelete] = useState<AccessCode | null>(null);
+  const [toDelete, setToDelete] = useState<
+    | { kind: "stripe"; code: AdminPromotionCode }
+    | { kind: "access"; code: AccessCode }
+    | null
+  >(null);
+
+  const confirmDelete = async () => {
+    const target = toDelete;
+    setToDelete(null);
+    if (!target) return;
+    setError(null);
+    try {
+      if (target.kind === "stripe") {
+        await adminFetch(`/api/admin/promo-codes/${target.code.id}`, { method: "DELETE" });
+        stripe.setData((prev) => prev && { ...prev, codes: prev.codes.filter((c) => c.id !== target.code.id) });
+      } else {
+        await adminFetch(`/api/admin/access-codes/${target.code.id}`, { method: "DELETE" });
+        access.setData((prev) => prev && prev.filter((c) => c.id !== target.code.id));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Suppression impossible");
+    }
+  };
 
   const toggleStripe = async (code: AdminPromotionCode) => {
     setError(null);
@@ -164,7 +186,7 @@ export default function AdminPromoCodesPage() {
                       <Th className="text-right">Utilisations</Th>
                       <Th>Expire le</Th>
                       <Th>État</Th>
-                      <Th className="text-right">Actif</Th>
+                      <Th className="text-right">Actions</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -187,8 +209,11 @@ export default function AdminPromoCodesPage() {
                         </Td>
                         <Td className="whitespace-nowrap text-muted-foreground">{shortDate(c.expiresAt)}</Td>
                         <Td>{codeState({ active: c.active, expiresAt: c.expiresAt, max: c.maxRedemptions, used: c.timesRedeemed })}</Td>
-                        <Td className="text-right">
-                          <Switch checked={c.active} onCheckedChange={() => toggleStripe(c)} />
+                        <Td className="whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <DeleteButton onClick={() => setToDelete({ kind: "stripe", code: c })} />
+                            <Switch checked={c.active} onCheckedChange={() => toggleStripe(c)} />
+                          </div>
                         </Td>
                       </tr>
                     ))}
@@ -238,7 +263,7 @@ export default function AdminPromoCodesPage() {
                       <Th>Utilisé par</Th>
                       <Th>Expire le</Th>
                       <Th>État</Th>
-                      <Th className="text-right">Actif</Th>
+                      <Th className="text-right">Actions</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -278,12 +303,8 @@ export default function AdminPromoCodesPage() {
                           {codeState({ active: c.is_active, expiresAt: c.expires_at, max: c.max_uses, used: c.current_uses })}
                         </Td>
                         <Td className="whitespace-nowrap text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {c.current_uses === 0 && (
-                              <Button variant="ghost" size="xs" onClick={() => setToDelete(c)}>
-                                Supprimer
-                              </Button>
-                            )}
+                          <div className="flex items-center justify-end gap-1">
+                            <DeleteButton onClick={() => setToDelete({ kind: "access", code: c })} />
                             <Switch checked={c.is_active} onCheckedChange={() => toggleAccess(c)} />
                           </div>
                         </Td>
@@ -317,24 +338,36 @@ export default function AdminPromoCodesPage() {
       {toDelete && (
         <ConfirmDialog
           open
-          title={`Supprimer le code ${toDelete.code} ?`}
-          description="Ce code n'a jamais été utilisé. Il sera définitivement supprimé."
+          title={`Supprimer le code ${toDelete.code.code} ?`}
+          description={
+            toDelete.kind === "stripe"
+              ? "Le code ne pourra plus être saisi au paiement et disparaît de cette liste. Les élèves qui bénéficient déjà de la réduction la gardent jusqu'au bout de sa durée."
+              : toDelete.code.current_uses > 0
+                ? "Le code ne pourra plus être utilisé et sera définitivement supprimé. Les accès déjà ouverts avec ce code sont conservés."
+                : "Ce code n'a jamais été utilisé. Il sera définitivement supprimé."
+          }
           confirmLabel="Supprimer"
           destructive
           onOpenChange={(open) => !open && setToDelete(null)}
-          onConfirm={async () => {
-            const target = toDelete;
-            setToDelete(null);
-            try {
-              await adminFetch(`/api/admin/access-codes/${target.id}`, { method: "DELETE" });
-              access.setData((prev) => prev && prev.filter((c) => c.id !== target.id));
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Suppression impossible");
-            }
-          }}
+          onConfirm={confirmDelete}
         />
       )}
     </div>
+  );
+}
+
+function DeleteButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+      onClick={onClick}
+      title="Supprimer"
+      aria-label="Supprimer"
+    >
+      <Trash2 className="h-4 w-4" />
+    </Button>
   );
 }
 

@@ -36,20 +36,17 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   return ok(data);
 }
 
-/** Suppression réservée aux codes jamais utilisés ; sinon, désactiver. */
+/**
+ * Suppression définitive. Les accès déjà ouverts par le code sont conservés
+ * (access_grants.promo_code_id passe à null via la FK « on delete set null »).
+ */
 export async function DELETE(_request: NextRequest, { params }: Params) {
   const { response } = await requireAdmin();
   if (response) return response;
 
   const { id } = await params;
-  const admin = getSupabaseAdmin();
-  const { data: code } = await admin.from("promo_codes").select("current_uses").eq("id", id).maybeSingle();
-  if (!code) return fail("Code introuvable", "NOT_FOUND", 404);
-  if (code.current_uses > 0) {
-    return fail("Ce code a déjà été utilisé : désactivez-le plutôt que de le supprimer.", "IN_USE", 409);
-  }
-
-  const { error } = await admin.from("promo_codes").delete().eq("id", id);
+  const { data, error } = await getSupabaseAdmin().from("promo_codes").delete().eq("id", id).select("id");
   if (error) return failFrom(error, `suppression code d'accès ${id}`);
+  if (!data?.length) return fail("Code introuvable", "NOT_FOUND", 404);
   return ok({ deleted: true });
 }

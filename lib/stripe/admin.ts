@@ -498,10 +498,18 @@ function toAdminPromotionCode(pc: PromotionCode): AdminPromotionCode {
   };
 }
 
+/**
+ * Marque d'un code « supprimé » depuis l'admin. Stripe ne permet pas de
+ * supprimer un code promo : on le désactive et on le masque de la liste.
+ */
+const DELETED_KEY = "lya_deleted_at";
+
 /** Codes promo créés par Lya — jamais ceux de systeme.io (coupons SI-*). */
 export async function listLyaPromotionCodes(): Promise<AdminPromotionCode[]> {
   const codes = await listAll<PromotionCode>("/promotion_codes", {}, 5);
-  return codes.filter((pc) => isLyaCoupon(pc.coupon)).map(toAdminPromotionCode);
+  return codes
+    .filter((pc) => isLyaCoupon(pc.coupon) && !pc.metadata?.[DELETED_KEY])
+    .map(toAdminPromotionCode);
 }
 
 export interface PromotionCodeDraft {
@@ -601,6 +609,22 @@ export async function setPromotionCodeActive(id: string, active: boolean): Promi
 
   const updated = await stripeApi.post<PromotionCode>(`/promotion_codes/${id}`, { active }, VERSION);
   return toAdminPromotionCode(updated);
+}
+
+/**
+ * « Supprime » un code : désactivé (plus utilisable au Checkout) et masqué de
+ * l'admin. Le coupon est conservé — les élèves qui ont déjà la réduction la
+ * gardent jusqu'au bout de sa durée.
+ */
+export async function deleteLyaPromotionCode(id: string): Promise<void> {
+  const current = await stripeApi.get<PromotionCode>(`/promotion_codes/${id}`, undefined, VERSION);
+  if (!isLyaCoupon(current.coupon)) throw new ForeignStripeObjectError(`Le code ${current.code}`);
+
+  await stripeApi.post(
+    `/promotion_codes/${id}`,
+    { active: false, metadata: { [DELETED_KEY]: new Date().toISOString() } },
+    VERSION
+  );
 }
 
 // --- Espace élève -----------------------------------------------------------------
