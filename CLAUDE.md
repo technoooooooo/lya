@@ -122,7 +122,7 @@ Assistant messages render YouTube links as clickable thumbnail cards below the m
 
 Chat UX: auto-scroll only sticks while the user is at the bottom (scroll up to read during streaming, "Revenir en bas" floating button); the send button becomes a Stop button during generation (AbortController → partial response kept client-side and saved server-side).
 
-**Gotcha**: `pdf-parse` must stay in `serverExternalPackages` (next.config.ts) — bundled, its text extraction fails silently in production builds (PDF uploads then behave like scanned PDFs).
+**Gotcha**: `pdf-parse` must stay in `serverExternalPackages` (next.config.ts) — bundled, its text extraction fails silently in production builds (PDF uploads then behave like scanned PDFs). Likewise `extractPdfText` must load `pdf-parse/worker` before `pdf-parse`, and `@napi-rs/canvas` must stay external: pdfjs 5 needs `DOMMatrix` at load time and fetches it from `@napi-rs/canvas` through a dynamic require that Vercel's file tracing misses — every knowledge PDF uploaded in production was flagged « PDF scanné » (`DOMMatrix is not defined` in the logs). `scripts/reindex-knowledge.ts` re-indexes PDFs left without chunks and fixes their admin status.
 
 ### Database Schema
 

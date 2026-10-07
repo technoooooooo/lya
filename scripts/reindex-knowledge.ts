@@ -74,6 +74,17 @@ async function main() {
         fileId: file.id,
         text,
       });
+      // Aligne le statut affiché dans l'admin (sinon le fichier reste en
+      // « PDF scanné » alors qu'il est désormais indexé).
+      await supabase
+        .from("knowledge_files")
+        .update({
+          extracted_text: text,
+          indexing_status: chunkCount > 0 ? "done" : "no_text",
+          indexing_error: null,
+          chunk_count: chunkCount,
+        })
+        .eq("id", file.id);
       console.log(`  ✓ ${chunkCount} chunks indexés`);
     } catch (e) {
       console.error(`  ✗ indexation échouée : ${(e as Error).message}`);

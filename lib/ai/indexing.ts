@@ -13,8 +13,18 @@ import { embedTexts } from "./embeddings";
  */
 export async function extractPdfText(buffer: Buffer): Promise<string | null> {
   try {
+    // pdfjs-dist 5 instancie DOMMatrix dès son chargement et, sous Node, va le
+    // chercher dans @napi-rs/canvas via un require dynamique que le traçage de
+    // fichiers de Vercel ne voit pas → « DOMMatrix is not defined » en
+    // production, chaque PDF finissait en « PDF scanné ». pdf-parse/worker
+    // importe @napi-rs/canvas statiquement (donc tracé et embarqué) et pose
+    // les globals ; il doit être chargé AVANT pdf-parse.
+    const { CanvasFactory } = await import("pdf-parse/worker");
     const { PDFParse } = await import("pdf-parse");
-    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    const parser = new PDFParse({
+      data: new Uint8Array(buffer),
+      CanvasFactory,
+    });
     const result = await parser.getText();
     await parser.destroy();
     return result.text;
