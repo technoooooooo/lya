@@ -8,6 +8,8 @@ interface UseVoiceRecorderReturn {
   recordingSeconds: number;
   startRecording: () => Promise<void>;
   stopRecording: () => void;
+  /** Arrête l'enregistrement sans produire d'audio (bouton « annuler »). */
+  cancelRecording: () => void;
   audioBlob: Blob | null;
 }
 
@@ -24,6 +26,7 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
   const chunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const discardRef = useRef(false);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -38,6 +41,7 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
     try {
       setAudioBlob(null);
       chunksRef.current = [];
+      discardRef.current = false;
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -60,6 +64,12 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
       };
 
       mediaRecorder.onstop = async () => {
+        if (discardRef.current) {
+          chunksRef.current = [];
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
         const type = mediaRecorder.mimeType || "audio/webm";
         const rawBlob = new Blob(chunksRef.current, { type });
         const durationMs = Date.now() - startTimeRef.current;
@@ -118,11 +128,17 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
     clearTimer();
   }, [clearTimer]);
 
+  const cancelRecording = useCallback(() => {
+    discardRef.current = true;
+    stopRecording();
+  }, [stopRecording]);
+
   return {
     isRecording,
     recordingSeconds,
     startRecording,
     stopRecording,
+    cancelRecording,
     audioBlob,
   };
 }

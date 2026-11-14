@@ -44,10 +44,10 @@ function UserMessageContent({ content }: { content: string }) {
           href={doc.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex w-fit items-center gap-2 rounded-lg bg-primary-foreground/15 px-3 py-2 text-xs underline-offset-2 hover:underline"
+          className="flex max-w-full w-fit items-center gap-2 rounded-lg bg-primary-foreground/15 px-3 py-2 text-xs underline-offset-2 hover:underline"
         >
           <FileText className="h-4 w-4 shrink-0" />
-          {doc.name}
+          <span className="truncate">{doc.name}</span>
         </a>
       ))}
       {text && <div>{text}</div>}
@@ -59,7 +59,7 @@ export function ChatMessage({ role, content, userAvatarUrl }: ChatMessageProps) 
   return (
     <div
       className={cn(
-        "flex w-full",
+        "flex w-full min-w-0",
         role === "user" ? "justify-end" : "justify-start"
       )}
     >
@@ -68,15 +68,17 @@ export function ChatMessage({ role, content, userAvatarUrl }: ChatMessageProps) 
         <img
           src="/images/mathieu.jpg"
           alt="Mathieu"
-          className="h-8 w-8 rounded-full object-cover shrink-0 mr-2 mt-1"
+          className="hidden sm:block h-8 w-8 rounded-full object-cover shrink-0 mr-2 mt-1"
         />
       )}
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-4 py-3 text-sm",
+          // min-w-0 + césure des mots : sans eux, une URL ou un tableau large
+          // élargit la bulle au-delà de l'écran (scroll horizontal sur mobile).
+          "min-w-0 rounded-2xl py-3 text-sm break-words",
           role === "user"
-            ? "bg-primary text-primary-foreground whitespace-pre-wrap"
-            : "bg-muted prose prose-sm dark:prose-invert prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 max-w-none"
+            ? "max-w-[85%] sm:max-w-[80%] px-4 bg-primary text-primary-foreground whitespace-pre-wrap"
+            : "flex-1 sm:flex-initial px-3.5 sm:px-4 bg-muted prose prose-sm dark:prose-invert prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:max-w-full prose-pre:overflow-x-auto max-w-none"
         )}
       >
         {role === "assistant" ? (
@@ -107,6 +109,13 @@ export function ChatMessage({ role, content, userAvatarUrl }: ChatMessageProps) 
                     </a>
                   );
                 },
+                // Les tableaux défilent dans leur propre cadre plutôt que
+                // d'élargir toute la page.
+                table: ({ children }) => (
+                  <div className="my-2 max-w-full overflow-x-auto">
+                    <table className="my-0">{children}</table>
+                  </div>
+                ),
                 // Photos de la base de connaissances insérées par l'IA.
                 img: ({ src, alt }) => {
                   const url = typeof src === "string" ? src : undefined;
@@ -118,7 +127,7 @@ export function ChatMessage({ role, content, userAvatarUrl }: ChatMessageProps) 
                         src={url}
                         alt={alt ?? ""}
                         loading="lazy"
-                        className="my-2 max-h-80 w-auto rounded-lg border"
+                        className="my-2 max-h-80 w-auto max-w-full rounded-lg border"
                       />
                     </a>
                   );
@@ -138,7 +147,7 @@ export function ChatMessage({ role, content, userAvatarUrl }: ChatMessageProps) 
         <img
           src={userAvatarUrl}
           alt="Vous"
-          className="h-8 w-8 rounded-full object-cover shrink-0 ml-2 mt-1"
+          className="hidden sm:block h-8 w-8 rounded-full object-cover shrink-0 ml-2 mt-1"
         />
       )}
     </div>

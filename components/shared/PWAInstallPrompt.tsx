@@ -54,7 +54,7 @@ export function PWAInstallPrompt() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-sm animate-in slide-in-from-bottom-4 fade-in duration-300">
+    <div className="fixed top-[calc(env(safe-area-inset-top)+0.75rem)] left-3 right-3 z-50 md:top-auto md:bottom-4 md:left-4 md:right-4 mx-auto max-w-sm animate-in slide-in-from-top-4 md:slide-in-from-bottom-4 fade-in duration-300">
       <div className="flex items-center gap-3 rounded-lg border bg-background p-4 shadow-lg">
         <Download className="h-5 w-5 shrink-0 text-primary" />
         <div className="flex-1 min-w-0">

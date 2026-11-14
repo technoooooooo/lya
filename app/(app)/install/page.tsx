@@ -35,7 +35,7 @@ export default function InstallPage() {
   }, []);
 
   return (
-    <div className="max-w-2xl mx-auto p-8 space-y-6">
+    <div className="max-w-2xl mx-auto px-4 py-6 sm:p-8 space-y-6">
       <div className="space-y-2">
         <h2 className="text-2xl font-bold">Installer TGA</h2>
         <p className="text-muted-foreground">

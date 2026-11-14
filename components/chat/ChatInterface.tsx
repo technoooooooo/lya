@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
-import { ArrowDown, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,6 +19,7 @@ import {
 import { ChatInput } from "./ChatInput";
 import { ChatMessage } from "./ChatMessage";
 import { TypingIndicator } from "./TypingIndicator";
+import { useAppShell } from "@/contexts/AppShellContext";
 import type { Message } from "@/types/chat";
 
 // Erreur renvoyée par l'API chat avec un message destiné à l'utilisateur —
@@ -32,6 +33,77 @@ interface ChatInterfaceProps {
   createdAt?: string;
   initialMessages?: Message[];
   onConversationCreated?: (id: string) => void;
+  /** Retour à la grille des piliers (conversation pas encore enregistrée). */
+  onBack?: () => void;
+}
+
+function PillarBadge({ name }: { name?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex min-w-0 items-center rounded-full px-2.5 py-1 text-xs font-medium",
+        name && name !== "Global"
+          ? "bg-muted-foreground/15 text-muted-foreground"
+          : "bg-golf/15 text-golf"
+      )}
+    >
+      <span className="truncate">{name || "Global"}</span>
+    </span>
+  );
+}
+
+function DeleteConversationButton({ conversationId }: { conversationId: string }) {
+  const router = useRouter();
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive md:h-8 md:w-8"
+          aria-label="Supprimer la conversation"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-xs text-center [&>button:last-child]:hidden">
+        <DialogHeader className="text-center sm:text-center">
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+            <Trash2 className="h-6 w-6 text-destructive" />
+          </div>
+          <DialogTitle className="text-center">
+            Supprimer la conversation
+          </DialogTitle>
+          <DialogDescription className="text-center">
+            Cette action est irréversible. Tous les messages seront définitivement supprimés.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="flex-row gap-2 sm:justify-center">
+          <DialogClose asChild>
+            <Button variant="outline" className="flex-1">
+              Annuler
+            </Button>
+          </DialogClose>
+          <Button
+            variant="destructive"
+            className="flex-1"
+            disabled={isDeleting}
+            onClick={async () => {
+              setIsDeleting(true);
+              const res = await fetch(`/api/conversations/${conversationId}`, { method: "DELETE" });
+              const result = await res.json();
+              if (result.success) {
+                router.push("/");
+              }
+              setIsDeleting(false);
+            }}
+          >
+            {isDeleting ? "Suppression..." : "Supprimer"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function ChatInterface({
@@ -41,27 +113,72 @@ export function ChatInterface({
   createdAt,
   initialMessages = [],
   onConversationCreated,
+  onBack,
 }: ChatInterfaceProps) {
-  const router = useRouter();
   const { profile } = useAuth();
+  const { setMobileHeader } = useAppShell();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [streamingContent, setStreamingContent] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentConvId, setCurrentConvId] = useState(conversationId);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [showJumpButton, setShowJumpButton] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // Tant que l'utilisateur est en bas, on suit la génération ; s'il remonte
   // pour lire, on arrête de le ramener en bas à chaque nouveau morceau.
   const pinnedRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
 
+  const scrollToBottom = () => {
+    const el = containerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+
   useEffect(() => {
-    if (pinnedRef.current) {
-      scrollRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
-    }
+    // Défilement instantané : un défilement animé émet des événements
+    // intermédiaires (« pas en bas ») et s'arrête court si le contenu grandit
+    // pendant l'animation — la vue décrochait du bas après une réponse.
+    if (pinnedRef.current) scrollToBottom();
   }, [messages, streamingContent, isStreaming]);
+
+  // La zone visible change de taille sans aucun événement de défilement :
+  // clavier mobile qui s'ouvre, champ de saisie qui grandit, images et
+  // vignettes vidéo qui se chargent. Si on était en bas, on y reste.
+  useEffect(() => {
+    const el = containerRef.current;
+    const content = el?.firstElementChild;
+    if (!el || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current) scrollToBottom();
+    });
+    observer.observe(el);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+
+  // Sur mobile, le pilier et les actions de la conversation vont dans la barre
+  // du haut de l'app (une seule barre au lieu de deux).
+  useEffect(() => {
+    setMobileHeader(
+      <>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex h-10 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Retour aux piliers"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+        )}
+        <div className="flex min-w-0 flex-1 px-1">
+          <PillarBadge name={pillarName} />
+        </div>
+        {currentConvId && <DeleteConversationButton conversationId={currentConvId} />}
+      </>
+    );
+  }, [setMobileHeader, onBack, pillarName, currentConvId]);
+
+  useEffect(() => () => setMobileHeader(null), [setMobileHeader]);
 
   const handleScroll = () => {
     const el = containerRef.current;
@@ -75,7 +192,7 @@ export function ChatInterface({
   const jumpToBottom = () => {
     pinnedRef.current = true;
     setShowJumpButton(false);
-    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+    containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: "smooth" });
   };
 
   const handleStop = () => {
@@ -181,74 +298,30 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
-        <div className="flex items-center gap-3">
-          <span className={cn(
-            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-            pillarName && pillarName !== "Global"
-              ? "bg-muted-foreground/15 text-muted-foreground"
-              : "bg-golf/15 text-golf"
-          )}>
-            {pillarName || "Global"}
-          </span>
+      <div className="hidden md:flex items-center justify-between gap-3 px-4 py-2.5 border-b shrink-0">
+        <div className="flex min-w-0 items-center gap-3">
+          {onBack && (
+            <Button variant="ghost" size="sm" onClick={onBack} className="-ml-2 shrink-0">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Retour aux piliers
+            </Button>
+          )}
+          <PillarBadge name={pillarName} />
           {createdAt && (
-            <span className="text-xs text-muted-foreground">
+            <span className="truncate text-xs text-muted-foreground">
               Conversation débutée le {new Date(createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
             </span>
           )}
         </div>
-        {currentConvId && (
-          <Dialog>
-            <DialogTrigger asChild>
-              <button
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                aria-label="Supprimer la conversation"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </DialogTrigger>
-            <DialogContent className="max-w-xs text-center [&>button:last-child]:hidden">
-              <DialogHeader className="text-center sm:text-center">
-                <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-                  <Trash2 className="h-6 w-6 text-destructive" />
-                </div>
-                <DialogTitle className="text-center">
-                  Supprimer la conversation
-                </DialogTitle>
-                <DialogDescription className="text-center">
-                  Cette action est irréversible. Tous les messages seront définitivement supprimés.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter className="flex-row gap-2 sm:justify-center">
-                <DialogClose asChild>
-                  <Button variant="outline" className="flex-1">
-                    Annuler
-                  </Button>
-                </DialogClose>
-                <Button
-                  variant="destructive"
-                  className="flex-1"
-                  disabled={isDeleting}
-                  onClick={async () => {
-                    setIsDeleting(true);
-                    const res = await fetch(`/api/conversations/${currentConvId}`, { method: "DELETE" });
-                    const result = await res.json();
-                    if (result.success) {
-                      router.push("/");
-                    }
-                    setIsDeleting(false);
-                  }}
-                >
-                  {isDeleting ? "Suppression..." : "Supprimer"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
+        {currentConvId && <DeleteConversationButton conversationId={currentConvId} />}
       </div>
       <div className="relative flex-1 min-h-0">
-        <div ref={containerRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4">
-          <div className="max-w-3xl mx-auto space-y-4">
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-4 md:p-4"
+        >
+          <div className="max-w-3xl mx-auto space-y-4 min-w-0">
             {messages.map((msg) => (
               <ChatMessage key={msg.id} role={msg.role} content={msg.content} userAvatarUrl={profile?.avatar_url} />
             ))}
@@ -256,13 +329,12 @@ export function ChatInterface({
               <ChatMessage role="assistant" content={streamingContent} />
             )}
             {isStreaming && !streamingContent && <TypingIndicator />}
-            <div ref={scrollRef} />
           </div>
         </div>
         {showJumpButton && (
           <button
             onClick={jumpToBottom}
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs shadow-md transition-colors hover:bg-muted"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full border bg-background px-3.5 py-2 text-xs shadow-md transition-colors hover:bg-muted"
             aria-label="Revenir en bas de la conversation"
           >
             <ArrowDown className="h-3.5 w-3.5" />

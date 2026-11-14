@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
@@ -12,6 +12,20 @@ export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
   title: BRAND_NAME,
   description: "Assistant IA dédié au coaching golf, prolongement numérique de la méthode de Mathieu.",
+};
+
+// - maximumScale 1 : empêche le zoom automatique de Safari iOS au focus d'un
+//   champ (le zoom au pincement reste possible, iOS l'autorise toujours) ;
+// - viewportFit cover : donne accès aux env(safe-area-inset-*) (encoche,
+//   barre d'accueil) une fois l'app installée sur l'écran d'accueil ;
+// - interactiveWidget resizes-content : sur Android, le clavier réduit la
+//   page au lieu de la recouvrir, le champ de saisie reste au-dessus.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
 };
 
 const geistSans = Geist({

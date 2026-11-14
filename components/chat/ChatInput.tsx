@@ -1,7 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Send, Mic, MicOff, Loader2, Paperclip, Square, FileText, X } from "lucide-react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
+import {
+  ArrowUp,
+  Check,
+  FileText,
+  Loader2,
+  Mic,
+  Paperclip,
+  Square,
+  X,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { MAX_MESSAGE_LENGTH } from "@/lib/validations/chat";
 import {
@@ -28,95 +38,173 @@ const COUNTER_THRESHOLD = Math.floor(MAX_MESSAGE_LENGTH * 0.8);
 const ACCEPTED_FILE_TYPES =
   "image/jpeg,image/png,image/webp,image/gif,application/pdf";
 
+const ICON_BUTTON =
+  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50";
+
 function formatDuration(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+function joinText(current: string, addition: string): string {
+  const base = current.trimEnd();
+  return base ? `${base} ${addition}` : addition;
+}
+
+// Écran tactile (téléphone, tablette) : pas de touche Maj pour aller à la
+// ligne, et un focus programmatique y ferait surgir le clavier par-dessus la
+// réponse qu'on veut lire.
+function isTouchDevice(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+}
+
 export function ChatInput({ onSend, onStop, isStreaming }: ChatInputProps) {
   const [message, setMessage] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isAutoSending, setIsAutoSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [uploadingCount, setUploadingCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Dictée terminée par « envoyer » : la transcription part directement à
+  // l'IA, sans passer par le champ de saisie.
+  const autoSendRef = useRef(false);
 
   const {
     isRecording,
     recordingSeconds,
     startRecording,
     stopRecording,
+    cancelRecording,
     audioBlob,
   } = useVoiceRecorder();
 
-  const transcribeAudio = useCallback(
-    async (blob: Blob) => {
-      setIsTranscribing(true);
-      setError(null);
+  const isTooLong = message.length > MAX_MESSAGE_LENGTH;
+  const isUploading = uploadingCount > 0;
+  const isBusy = isStreaming || isTranscribing;
 
-      try {
-        // L'extension doit refléter le conteneur réel (Safari/iOS enregistre
-        // en mp4) : Whisper s'appuie dessus pour décoder le fichier.
-        const extension = blob.type.includes("mp4")
-          ? "mp4"
-          : blob.type.includes("ogg")
-            ? "ogg"
-            : "webm";
-
-        const formData = new FormData();
-        formData.append("audio", blob, `audio.${extension}`);
-
-        const response = await fetch("/api/transcribe", {
-          method: "POST",
-          body: formData,
-        });
-
-        const result = await response.json();
-
-        if (!result.success) {
-          setError(result.error?.message || "Erreur de transcription");
-          return;
-        }
-
-        const transcribedText = result.data.text;
-        if (transcribedText) {
-          setMessage((prev) =>
-            prev ? `${prev} ${transcribedText}` : transcribedText
-          );
-        }
-      } catch {
-        setError("Erreur de connexion au serveur");
-      } finally {
-        setIsTranscribing(false);
-      }
-    },
-    []
-  );
-
-  // When audioBlob changes (recording stopped), send it for transcription
-  useEffect(() => {
-    if (audioBlob) {
-      transcribeAudio(audioBlob);
+  /** Envoie `text` + les pièces jointes en attente. Renvoie false si refusé. */
+  const send = (text: string): boolean => {
+    const trimmed = text.trim();
+    if (
+      (!trimmed && attachments.length === 0) ||
+      isStreaming ||
+      isUploading ||
+      text.length > MAX_MESSAGE_LENGTH
+    ) {
+      return false;
     }
-  }, [audioBlob, transcribeAudio]);
 
-  const handleMicClick = async () => {
+    // Les pièces jointes sont référencées en markdown à la fin du message —
+    // c'est la convention lue par le serveur et par l'affichage des bulles.
+    const attachmentLines = attachments
+      .map((a) =>
+        a.kind === "image"
+          ? imageAttachmentMarkdown(a.name, a.url)
+          : docAttachmentMarkdown(a.name, a.url)
+      )
+      .join("\n");
+    const content = [trimmed, attachmentLines].filter(Boolean).join("\n\n");
+
+    onSend(content);
+    setMessage("");
+    setAttachments([]);
+    if (isTouchDevice()) {
+      // On ferme le clavier : la réponse doit occuper l'écran.
+      textareaRef.current?.blur();
+    } else {
+      textareaRef.current?.focus();
+    }
+    return true;
+  };
+
+  // Version toujours à jour de `send` pour la suite asynchrone de la dictée.
+  const sendRef = useRef(send);
+  const messageRef = useRef(message);
+  useEffect(() => {
+    sendRef.current = send;
+    messageRef.current = message;
+  });
+
+  const transcribeAudio = useCallback(async (blob: Blob): Promise<string | null> => {
+    setIsTranscribing(true);
     setError(null);
 
-    if (isRecording) {
-      stopRecording();
-    } else {
-      try {
-        await startRecording();
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Erreur lors de l'acces au microphone"
-        );
+    try {
+      // L'extension doit refléter le conteneur réel (Safari/iOS enregistre
+      // en mp4) : Whisper s'appuie dessus pour décoder le fichier.
+      const extension = blob.type.includes("mp4")
+        ? "mp4"
+        : blob.type.includes("ogg")
+          ? "ogg"
+          : "webm";
+
+      const formData = new FormData();
+      formData.append("audio", blob, `audio.${extension}`);
+
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        setError(result.error?.message || "Erreur de transcription");
+        return null;
       }
+
+      return (result.data.text as string | undefined)?.trim() || null;
+    } catch {
+      setError("Erreur de connexion au serveur");
+      return null;
+    } finally {
+      setIsTranscribing(false);
     }
+  }, []);
+
+  // Fin d'enregistrement : transcription, puis envoi direct ou insertion dans
+  // le champ selon le bouton utilisé pour arrêter.
+  useEffect(() => {
+    if (!audioBlob) return;
+    const autoSend = autoSendRef.current;
+    autoSendRef.current = false;
+
+    void (async () => {
+      const text = await transcribeAudio(audioBlob);
+      setIsAutoSending(false);
+      if (!text) return;
+      if (autoSend && sendRef.current(joinText(messageRef.current, text))) return;
+      // Envoi impossible (pièce jointe encore en cours d'envoi…) : le texte
+      // reste dans le champ, rien n'est perdu.
+      setMessage((prev) => joinText(prev, text));
+    })();
+  }, [audioBlob, transcribeAudio]);
+
+  const handleStartRecording = async () => {
+    setError(null);
+    try {
+      await startRecording();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Erreur lors de l'accès au microphone"
+      );
+    }
+  };
+
+  const handleStopAndReview = () => {
+    autoSendRef.current = false;
+    stopRecording();
+  };
+
+  const handleStopAndSend = () => {
+    autoSendRef.current = true;
+    setIsAutoSending(true);
+    stopRecording();
   };
 
   const uploadFile = async (file: File) => {
@@ -155,91 +243,52 @@ export function ChatInput({ onSend, onStop, isStreaming }: ChatInputProps) {
     setAttachments((prev) => prev.filter((a) => a.url !== url));
   };
 
-  const isTooLong = message.length > MAX_MESSAGE_LENGTH;
-  const isUploading = uploadingCount > 0;
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const text = message.trim();
-    if ((!text && attachments.length === 0) || isStreaming || isTooLong || isUploading)
-      return;
-
-    // Les pièces jointes sont référencées en markdown à la fin du message —
-    // c'est la convention lue par le serveur et par l'affichage des bulles.
-    const attachmentLines = attachments
-      .map((a) =>
-        a.kind === "image"
-          ? imageAttachmentMarkdown(a.name, a.url)
-          : docAttachmentMarkdown(a.name, a.url)
-      )
-      .join("\n");
-    const content = [text, attachmentLines].filter(Boolean).join("\n\n");
-
-    onSend(content);
-    setMessage("");
-    setAttachments([]);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.focus();
-    }
+    send(message);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Sur mobile, « Entrée » va à la ligne : on envoie avec le bouton.
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.nativeEvent.isComposing &&
+      !isTouchDevice()
+    ) {
       e.preventDefault();
-      handleSubmit(e);
+      send(message);
     }
   };
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isBusy = isStreaming || isTranscribing;
-
   useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    if (!isBusy) {
+    if (!isBusy && !isTouchDevice()) {
       textareaRef.current?.focus();
     }
   }, [isBusy]);
 
-  const autoResize = () => {
+  // Hauteur du champ ajustée au contenu (saisie, dictée, remise à zéro).
+  useLayoutEffect(() => {
     const el = textareaRef.current;
-    if (el) {
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-    }
-  };
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [message, isRecording]);
 
   return (
-    <form onSubmit={handleSubmit} className="px-4 pb-4 pt-2">
-      <div className="max-w-3xl mx-auto flex flex-col gap-2">
+    <form
+      onSubmit={handleSubmit}
+      className="shrink-0 px-2 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4 md:pt-2 md:pb-4"
+    >
+      <div className="max-w-3xl mx-auto flex flex-col gap-1.5">
         {error && <p className="text-sm text-destructive px-1">{error}</p>}
-        <div className="rounded-2xl border bg-muted/40 p-3">
-          {isRecording && (
-            <div className="flex items-center gap-2 px-1 pb-2 text-sm">
-              <span className="relative flex h-2.5 w-2.5 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
-              </span>
-              <span className="font-medium text-destructive">
-                Enregistrement en cours
-              </span>
-              <span className="tabular-nums text-destructive">
-                {formatDuration(recordingSeconds)}
-              </span>
-              <span className="text-muted-foreground hidden sm:inline">
-                — cliquez sur le micro pour terminer
-              </span>
-            </div>
-          )}
+        <div className="rounded-3xl border bg-muted/40 p-1.5 md:rounded-2xl md:p-2.5">
           {(attachments.length > 0 || isUploading) && (
-            <div className="flex flex-wrap items-center gap-2 px-1 pb-2">
+            <div className="flex flex-wrap items-center gap-2 px-1.5 pt-1 pb-2">
               {attachments.map((attachment) => (
                 <div
                   key={attachment.url}
-                  className="group relative flex items-center gap-2 rounded-lg border bg-background px-2 py-1.5 text-xs"
+                  className="group relative flex min-w-0 max-w-full items-center gap-2 rounded-lg border bg-background px-2 py-1.5 text-xs"
                 >
                   {attachment.kind === "image" ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -255,7 +304,7 @@ export function ChatInput({ onSend, onStop, isStreaming }: ChatInputProps) {
                   <button
                     type="button"
                     onClick={() => removeAttachment(attachment.url)}
-                    className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                     aria-label={`Retirer ${attachment.name}`}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -270,97 +319,143 @@ export function ChatInput({ onSend, onStop, isStreaming }: ChatInputProps) {
               )}
             </div>
           )}
-          <textarea
-            ref={textareaRef}
-            value={message}
-            onChange={(e) => {
-              setMessage(e.target.value);
-              autoResize();
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              isTranscribing
-                ? "Transcription en cours..."
-                : "Posez votre question..."
-            }
-            className="w-full resize-none bg-transparent px-1 py-1 text-sm focus:outline-none min-h-[24px] max-h-[200px] placeholder:text-muted-foreground"
-            rows={1}
-            disabled={isTranscribing}
-          />
-          <div className="flex items-center justify-between mt-2">
-            <div className="px-1 text-xs">
-              {isTooLong ? (
-                <span className="text-destructive">
-                  Message trop long : {message.length.toLocaleString("fr-FR")} /{" "}
-                  {MAX_MESSAGE_LENGTH.toLocaleString("fr-FR")} caractères
-                </span>
-              ) : message.length >= COUNTER_THRESHOLD ? (
-                <span className="text-muted-foreground tabular-nums">
-                  {message.length.toLocaleString("fr-FR")} /{" "}
-                  {MAX_MESSAGE_LENGTH.toLocaleString("fr-FR")}
-                </span>
-              ) : null}
-            </div>
+
+          {isRecording ? (
+            // Dictée en cours : une seule barre, deux sorties en un geste —
+            // ↑ transcrit et envoie directement, ✓ transcrit dans le champ pour
+            // relire/corriger avant d'envoyer. ✕ abandonne.
             <div className="flex items-center gap-1">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={ACCEPTED_FILE_TYPES}
-                multiple
-                className="hidden"
-                onChange={handleFilesSelected}
+              <button
+                type="button"
+                onClick={cancelRecording}
+                className={ICON_BUTTON}
+                aria-label="Annuler la dictée"
+              >
+                <X className="h-5 w-5" />
+              </button>
+              <div className="flex min-w-0 flex-1 items-center gap-2 px-1 text-sm">
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
+                </span>
+                <span className="tabular-nums font-medium text-destructive">
+                  {formatDuration(recordingSeconds)}
+                </span>
+                <span className="truncate text-muted-foreground">Je vous écoute…</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleStopAndReview}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-background text-foreground transition-colors hover:bg-muted"
+                aria-label="Terminer et relire avant d'envoyer"
+                title="Terminer et relire"
+              >
+                <Check className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleStopAndSend}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-golf text-golf-foreground transition-opacity hover:opacity-90"
+                aria-label="Terminer et envoyer"
+                title="Terminer et envoyer"
+              >
+                <ArrowUp className="h-5 w-5" />
+              </button>
+            </div>
+          ) : (
+            <>
+              <textarea
+                ref={textareaRef}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  isTranscribing
+                    ? isAutoSending
+                      ? "Transcription et envoi…"
+                      : "Transcription en cours…"
+                    : "Posez votre question..."
+                }
+                // 16 px minimum sur mobile : en dessous, Safari iOS zoome
+                // la page au focus du champ (et elle ne se dézoome pas).
+                className="block w-full resize-none bg-transparent px-2.5 py-1.5 text-base leading-6 focus:outline-none min-h-[36px] max-h-[min(200px,30dvh)] placeholder:text-muted-foreground md:px-1.5 md:text-sm"
+                rows={1}
+                disabled={isTranscribing}
               />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isTranscribing || isStreaming}
-                aria-label="Joindre une photo ou un document"
-                className="p-2 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
-              >
-                <Paperclip className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={handleMicClick}
-                disabled={isTranscribing || isStreaming}
-                aria-label={isRecording ? "Arreter l'enregistrement" : "Dictee vocale"}
-                className={`p-2 rounded-lg transition-colors hover:bg-muted disabled:opacity-50 ${
-                  isRecording ? "text-destructive animate-pulse" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {isTranscribing ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : isRecording ? (
-                  <MicOff className="h-5 w-5" />
-                ) : (
-                  <Mic className="h-5 w-5" />
-                )}
-              </button>
-              {isStreaming ? (
+              <div className="flex items-center gap-1 md:mt-1">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={ACCEPTED_FILE_TYPES}
+                  multiple
+                  className="hidden"
+                  onChange={handleFilesSelected}
+                />
                 <button
                   type="button"
-                  onClick={onStop}
-                  aria-label="Arrêter la génération"
-                  className="p-2 rounded-lg transition-colors bg-foreground text-background hover:opacity-80"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isBusy}
+                  aria-label="Joindre une photo ou un document"
+                  className={ICON_BUTTON}
                 >
-                  <Square className="h-4 w-4 fill-current" />
+                  <Paperclip className="h-5 w-5" />
                 </button>
-              ) : (
+                <div className="min-w-0 flex-1 px-1 text-xs">
+                  {isTooLong ? (
+                    <span className="text-destructive">
+                      Trop long : {message.length.toLocaleString("fr-FR")} /{" "}
+                      {MAX_MESSAGE_LENGTH.toLocaleString("fr-FR")}
+                    </span>
+                  ) : message.length >= COUNTER_THRESHOLD ? (
+                    <span className="text-muted-foreground tabular-nums">
+                      {message.length.toLocaleString("fr-FR")} /{" "}
+                      {MAX_MESSAGE_LENGTH.toLocaleString("fr-FR")}
+                    </span>
+                  ) : null}
+                </div>
                 <button
-                  type="submit"
-                  disabled={
-                    (!message.trim() && attachments.length === 0) ||
-                    isTranscribing ||
-                    isTooLong ||
-                    isUploading
-                  }
-                  className="p-2 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  type="button"
+                  onClick={handleStartRecording}
+                  disabled={isBusy}
+                  aria-label="Dictée vocale"
+                  className={ICON_BUTTON}
                 >
-                  <Send className="h-5 w-5" />
+                  {isTranscribing ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Mic className="h-5 w-5" />
+                  )}
                 </button>
-              )}
-            </div>
-          </div>
+                {isStreaming ? (
+                  <button
+                    type="button"
+                    onClick={onStop}
+                    aria-label="Arrêter la génération"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-80"
+                  >
+                    <Square className="h-4 w-4 fill-current" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    aria-label="Envoyer"
+                    disabled={
+                      (!message.trim() && attachments.length === 0) ||
+                      isTranscribing ||
+                      isTooLong ||
+                      isUploading
+                    }
+                    className={cn(
+                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-80",
+                      "disabled:bg-muted-foreground/20 disabled:text-muted-foreground disabled:hover:opacity-100"
+                    )}
+                  >
+                    <ArrowUp className="h-5 w-5" />
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </form>
