@@ -2,9 +2,9 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { NextResponse } from "next/server";
 import { serverEnv } from "@/lib/env";
 
-// L'API Costs d'OpenAI (/v1/organization/costs) renvoie les coûts reels factures,
-// agreges par jour. Elle exige une cle Admin d'organisation (OPENAI_ADMIN_KEY),
-// distincte de la cle projet OPENAI_API_KEY utilisee pour les appels chat/embeddings.
+// L'API Costs d'OpenAI (/v1/organization/costs) renvoie les coûts réels facturés,
+// agrégés par jour. Elle exige une clé Admin d'organisation (OPENAI_ADMIN_KEY),
+// distincte de la clé projet OPENAI_API_KEY utilisée pour les appels chat/embeddings.
 // Cf. https://platform.openai.com/settings/organization/admin-keys
 const OPENAI_COSTS_URL = "https://api.openai.com/v1/organization/costs";
 
@@ -33,7 +33,7 @@ export async function GET() {
           success: false,
           error: {
             message:
-              "Cle Admin OpenAI non configuree. Ajoutez OPENAI_ADMIN_KEY dans vos variables d'environnement.",
+              "Clé Admin OpenAI non configurée. Ajoutez OPENAI_ADMIN_KEY dans vos variables d'environnement.",
             code: "ADMIN_KEY_MISSING",
           },
         },
@@ -53,7 +53,7 @@ export async function GET() {
 
     const response = await fetch(`${OPENAI_COSTS_URL}?${params.toString()}`, {
       headers: { Authorization: `Bearer ${adminKey}` },
-      // On ne met pas en cache : les coûts se consolident au fil de la journee.
+      // On ne met pas en cache : les coûts se consolident au fil de la journée.
       cache: "no-store",
     });
 
