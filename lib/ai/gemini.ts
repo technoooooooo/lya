@@ -1,3 +1,4 @@
+import { toAIProviderError } from "./errors";
 import type { AIMessage, AIProvider, AIStreamConfig } from "./types";
 import { serverEnv } from "@/lib/env";
 
@@ -67,8 +68,7 @@ export class GeminiProvider implements AIProvider {
     );
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(`Gemini API error: ${response.status} - ${error.error?.message || "Unknown error"}`);
+      throw await toAIProviderError("gemini", response);
     }
 
     const data = await response.json();
@@ -97,8 +97,7 @@ export class GeminiProvider implements AIProvider {
     );
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(`Gemini API error: ${response.status} - ${error.error?.message || "Unknown error"}`);
+      throw await toAIProviderError("gemini", response);
     }
 
     const reader = response.body!.getReader();

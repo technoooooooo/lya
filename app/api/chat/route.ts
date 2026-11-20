@@ -4,6 +4,7 @@ import { buildSystemPrompt, buildMessages, buildUserMessage } from "@/lib/ai/pro
 import { retrieveForMessage } from "@/lib/ai/retrieval";
 import { buildAttachmentContext } from "@/lib/chat/attachmentContext";
 import { sanitizeInput } from "@/lib/ai/guardrails";
+import { AIProviderError } from "@/lib/ai/errors";
 import { hasActiveAccess } from "@/lib/billing/access";
 import { sendMessageSchema } from "@/lib/validations/chat";
 import { NextResponse } from "next/server";
@@ -16,7 +17,61 @@ const RATE_LIMIT_PER_HOUR = parseInt(
   10
 );
 
+/**
+ * Réponse quand le fournisseur IA refuse la requête. L'élève reçoit un message
+ * compréhensible (le client l'affiche tel quel) ; l'admin reçoit la cause
+ * exacte et l'action à mener, puisque c'est lui qui teste et qui peut agir.
+ */
+function aiProviderErrorResponse(error: AIProviderError, isAdmin: boolean) {
+  if (error.isQuotaExhausted) {
+    // Préfixe fixe pour retrouver l'incident d'un coup d'œil dans les logs Vercel.
+    console.error(`[IA] CRÉDIT ÉPUISÉ — le chat est hors service : ${error.message}`);
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          message: isAdmin
+            ? "Le crédit du compte OpenAI est épuisé : plus aucune réponse ne peut être générée, pour aucun élève. Rechargez-le sur platform.openai.com → Settings → Billing (et activez la recharge automatique)."
+            : "Lya est momentanément indisponible. L'équipe a été prévenue, réessayez un peu plus tard.",
+          code: "AI_QUOTA_EXCEEDED",
+        },
+      },
+      { status: 503 }
+    );
+  }
+
+  if (error.isRateLimited) {
+    console.error(`[IA] Limite de débit du fournisseur atteinte : ${error.message}`);
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          message: "Lya reçoit beaucoup de demandes en ce moment. Réessayez dans quelques secondes.",
+          code: "AI_RATE_LIMITED",
+        },
+      },
+      { status: 503 }
+    );
+  }
+
+  console.error(`[IA] Erreur du fournisseur : ${error.message}`);
+  return NextResponse.json(
+    {
+      success: false,
+      error: {
+        message: isAdmin
+          ? `Le fournisseur IA a refusé la requête : ${error.message}`
+          : "Lya n'arrive pas à répondre pour le moment. Réessayez dans quelques instants.",
+        code: "AI_PROVIDER_ERROR",
+      },
+    },
+    { status: 502 }
+  );
+}
+
 export async function POST(request: Request) {
+  // Connu dès la lecture du profil ; sert au catch pour adapter le message.
+  let isAdmin = false;
   try {
     const supabase = await createClient();
 
@@ -50,7 +105,7 @@ export async function POST(request: Request) {
     // Les admins testent l'app avec leur propre compte (« Vue utilisateur »)
     // sans passer par Stripe : ils sont exemptés des checks d'abonnement et du
     // rate limit, comme en dev.
-    const isAdmin = userProfile?.role === "admin";
+    isAdmin = userProfile?.role === "admin";
     const bypassChecks = isDev || isAdmin;
 
     if (!bypassChecks && !userProfile?.is_active) {
@@ -297,6 +352,9 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof AIProviderError) {
+      return aiProviderErrorResponse(error, isAdmin);
+    }
     console.error("Chat API error:", error);
     return NextResponse.json(
       { success: false, error: { message: "Erreur serveur", code: "SERVER_ERROR" } },

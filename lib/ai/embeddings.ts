@@ -1,3 +1,4 @@
+import { toAIProviderError } from "./errors";
 import { serverEnv } from "@/lib/env";
 const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
 const EMBEDDING_MODEL = serverEnv("EMBEDDING_MODEL") || "text-embedding-3-small";
@@ -19,12 +20,7 @@ async function embedBatch(inputs: string[]): Promise<number[][]> {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      `OpenAI embeddings error: ${response.status} - ${
-        error.error?.message || "Unknown error"
-      }`
-    );
+    throw await toAIProviderError("openai", response);
   }
 
   const data = await response.json();

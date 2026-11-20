@@ -1,3 +1,4 @@
+import { toAIProviderError } from "./errors";
 import type { AIMessage, AIProvider, AIStreamConfig } from "./types";
 import { serverEnv } from "@/lib/env";
 
@@ -53,8 +54,7 @@ export class OpenAIProvider implements AIProvider {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(`OpenAI API error: ${response.status} - ${error.error?.message || "Unknown error"}`);
+      throw await toAIProviderError("openai", response);
     }
 
     const data = await response.json();
@@ -73,8 +73,7 @@ export class OpenAIProvider implements AIProvider {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(`OpenAI API error: ${response.status} - ${error.error?.message || "Unknown error"}`);
+      throw await toAIProviderError("openai", response);
     }
 
     const reader = response.body!.getReader();
